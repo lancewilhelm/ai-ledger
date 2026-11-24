@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from 'recharts'
 import { fmtCompact, fmtInt, fmtUSD } from '../format'
 import type { TimeseriesPoint } from '../types'
-import { SERIES_COLORS, assignSeriesColors, colorFor, type ColorMode } from './ui'
+import { assignSeriesColors, colorFor, type ColorMode } from './ui'
 
 export type Metric = 'tokens' | 'cost' | 'calls'
 export type Bucket = 'hour' | 'day' | 'week'
@@ -11,10 +11,10 @@ export type GroupBy = 'none' | 'harness' | 'model' | 'device' | 'project'
 const MAX_SERIES = 8
 
 const TOKEN_SERIES = [
-  { key: 'input_tokens', label: 'Input', color: '#6366f1' },
-  { key: 'cached_input_tokens', label: 'Cached', color: '#10b981' },
-  { key: 'cache_write', label: 'Cache write', color: '#f59e0b' },
-  { key: 'output_tokens', label: 'Output', color: '#ec4899' },
+  { key: 'input_tokens', label: 'Input', color: 'var(--tok-input)' },
+  { key: 'cached_input_tokens', label: 'Cached', color: 'var(--tok-cached)' },
+  { key: 'cache_write', label: 'Cache write', color: 'var(--tok-write)' },
+  { key: 'output_tokens', label: 'Output', color: 'var(--tok-output)' },
 ] as const
 
 function value(p: TimeseriesPoint, m: Metric): number {
@@ -75,7 +75,7 @@ export default function TimeseriesChart({ points, metric, bucket, groupBy }: { p
         const r = ensure(p.bucket)
         r.value = ((r.value as number) || 0) + value(p, metric)
       }
-      return { rows: [...byBucket.values()], series: [{ key: 'value', label: metric === 'cost' ? 'Cost' : 'API calls', color: SERIES_COLORS[0] }] }
+      return { rows: [...byBucket.values()], series: [{ key: 'value', label: metric === 'cost' ? 'Cost' : 'API calls', color: 'var(--accent)' }] }
     }
 
     // Grouped: keep the top N groups, fold the rest into "Other".

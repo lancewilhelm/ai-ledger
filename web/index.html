@@ -9,7 +9,10 @@
     <script>
       try {
         var t = localStorage.getItem('ail-theme');
-        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.dataset.theme = t;
       } catch (e) {}
     </script>
   </head>

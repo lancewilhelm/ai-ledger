@@ -1,33 +1,35 @@
 :root {
-  --bg: #0b0d12;
-  --bg-elev: #11141b;
-  --surface: #151922;
-  --surface-2: #1b2030;
-  --surface-hover: #1f2535;
-  --border: #252b3a;
-  --border-strong: #343c50;
-  --text: #e6e9f2;
-  --text-2: #a5adc2;
-  --muted: #7a8399;
-  --accent: #7c7ff7;
-  --accent-strong: #6366f1;
-  --accent-soft: rgba(124, 127, 247, 0.14);
-  --ok: #34d399;
-  --ok-soft: rgba(52, 211, 153, 0.14);
-  --warn: #fbbf24;
-  --warn-soft: rgba(251, 191, 36, 0.14);
-  --err: #f87171;
-  --err-soft: rgba(248, 113, 113, 0.14);
-  --info: #60a5fa;
-  --info-soft: rgba(96, 165, 250, 0.14);
-  --mark-bg: rgba(250, 204, 21, 0.3);
-  --mark-text: #fde68a;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  --tok-input: #6366f1;
-  --tok-cached: #10b981;
-  --tok-write: #f59e0b;
-  --tok-output: #ec4899;
-  --tok-reason: #a855f7;
+  /* Sage Nord (dark) */
+  --bg: #242933;
+  --bg-elev: #292f3a;
+  --surface: #2e3440;
+  --surface-2: #353c4a;
+  --surface-hover: #3b4252;
+  --border: #3d4654;
+  --border-strong: #4e5a68;
+  --text: #dfe7e1;
+  --text-2: #b8c5bc;
+  --muted: #9aa9a0;
+  --accent: #98be9b;
+  --accent-strong: #85ae88;
+  --accent-ink: #1e242c;
+  --accent-soft: rgba(152, 190, 155, 0.14);
+  --ok: #a3be8c;
+  --ok-soft: rgba(163, 190, 140, 0.16);
+  --warn: #ebcb8b;
+  --warn-soft: rgba(235, 203, 139, 0.15);
+  --err: #bf616a;
+  --err-soft: rgba(191, 97, 106, 0.16);
+  --info: #88c0d0;
+  --info-soft: rgba(136, 192, 208, 0.15);
+  --mark-bg: rgba(235, 203, 139, 0.28);
+  --mark-text: #f6e7c4;
+  --shadow: 0 10px 30px rgba(15, 19, 25, 0.42);
+  --tok-input: #81a1c1;
+  --tok-cached: #98be9b;
+  --tok-write: #ebcb8b;
+  --tok-output: #d08770;
+  --tok-reason: #b48ead;
   --radius: 12px;
   --radius-sm: 8px;
   --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -36,30 +38,37 @@
 }
 
 :root[data-theme='light'] {
-  --bg: #f5f6fa;
-  --bg-elev: #ffffff;
-  --surface: #ffffff;
-  --surface-2: #f1f3f8;
-  --surface-hover: #f0f2f8;
-  --border: #e3e6ee;
-  --border-strong: #cfd4e0;
-  --text: #151826;
-  --text-2: #444b5e;
-  --muted: #6b7286;
-  --accent: #5b5ef0;
-  --accent-strong: #4f46e5;
-  --accent-soft: rgba(91, 94, 240, 0.1);
-  --ok: #059669;
-  --ok-soft: rgba(5, 150, 105, 0.1);
-  --warn: #b45309;
-  --warn-soft: rgba(217, 119, 6, 0.12);
-  --err: #dc2626;
-  --err-soft: rgba(220, 38, 38, 0.1);
-  --info: #2563eb;
-  --info-soft: rgba(37, 99, 235, 0.1);
-  --mark-bg: #fde68a;
-  --mark-text: #422006;
-  --shadow: 0 10px 30px rgba(20, 24, 40, 0.12);
+  /* Sage Light */
+  --bg: #f2f4f2;
+  --bg-elev: #f7f9f7;
+  --surface: #fbfcfb;
+  --surface-2: #e6ebe7;
+  --surface-hover: #edf1ee;
+  --border: #d2dcd5;
+  --border-strong: #9eb0a3;
+  --text: #262e29;
+  --text-2: #435148;
+  --muted: #5c6b61;
+  --accent: #3b5c47;
+  --accent-strong: #2f4b39;
+  --accent-ink: #f2f4f2;
+  --accent-soft: rgba(59, 92, 71, 0.11);
+  --ok: #2e6b48;
+  --ok-soft: rgba(46, 107, 72, 0.12);
+  --warn: #a16207;
+  --warn-soft: rgba(161, 98, 7, 0.12);
+  --err: #b3483f;
+  --err-soft: rgba(179, 72, 63, 0.12);
+  --info: #3a6b82;
+  --info-soft: rgba(58, 107, 130, 0.12);
+  --mark-bg: #efe0b4;
+  --mark-text: #362908;
+  --shadow: 0 10px 30px rgba(38, 46, 41, 0.1);
+  --tok-input: #4c7496;
+  --tok-cached: #3b5c47;
+  --tok-write: #c28b37;
+  --tok-output: #b8624b;
+  --tok-reason: #845f80;
   color-scheme: light;
 }
 
@@ -167,8 +176,8 @@ pre { margin: 0; }
 .btn:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-strong); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-sm { height: 28px; padding: 0 9px; font-size: 12.5px; }
-.btn-primary { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--text-2); }
 .btn-danger { background: var(--err); border-color: var(--err); color: #fff; }
 .btn-danger:hover:not(:disabled) { filter: brightness(1.08); background: var(--err); }
@@ -279,7 +288,7 @@ pre { margin: 0; }
 .badge.harness, .badge.model {
   background: color-mix(in srgb, var(--badge) 16%, transparent);
   border-color: color-mix(in srgb, var(--badge) 28%, transparent);
-  color: color-mix(in srgb, var(--badge) 78%, var(--text));
+  color: color-mix(in srgb, var(--badge) 68%, var(--text));
 }
 .badge.model { max-width: 240px; }
 .badge.harness .dot, .badge.model .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--badge); flex-shrink: 0; }
@@ -287,7 +296,7 @@ pre { margin: 0; }
 :root[data-theme='light'] .badge.model {
   background: color-mix(in srgb, var(--badge) 13%, transparent);
   border-color: color-mix(in srgb, var(--badge) 28%, transparent);
-  color: color-mix(in srgb, var(--badge) 52%, var(--text));
+  color: color-mix(in srgb, var(--badge) 50%, var(--text));
 }
 .model-cell { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-width: 0; }
 .model-cell .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
@@ -318,7 +327,7 @@ pre { margin: 0; }
 .onboarding-head { display: flex; gap: 14px; align-items: flex-start; }
 .onboarding-head h2 { margin: 0 0 4px; font-size: 18px; }
 .onboarding-head p { margin: 0; }
-.onboarding-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-strong); color: #fff; flex-shrink: 0; }
+.onboarding-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); flex-shrink: 0; }
 .steps { margin: 18px 0 0; padding: 0; list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .steps li { counter-increment: step; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; min-width: 0; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .steps li p { margin: 0; font-size: 13px; }

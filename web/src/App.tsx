@@ -54,11 +54,18 @@ interface Toast {
   tone: 'ok' | 'err'
 }
 
+function defaultTheme(): 'dark' | 'light' {
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)').matches) {
+    return 'light'
+  }
+  return 'dark'
+}
+
 export default function App() {
   const [route, setRoute] = useState<Route>(parseHash)
   const [filters, setFilters] = useState<Filters>(loadFilters)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [theme, setTheme] = usePersistentState<'dark' | 'light'>('ail-theme', 'dark')
+  const [theme, setTheme] = usePersistentState<'dark' | 'light'>('ail-theme', defaultTheme())
   const [toasts, setToasts] = useState<Toast[]>([])
   const [navOpen, setNavOpen] = useState(false)
 
@@ -114,7 +121,7 @@ export default function App() {
             <div className="brand-mark">
               <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden>
                 <rect width="32" height="32" rx="8" fill="var(--accent)" />
-                <path d="M9 22V10h3v9.5h7V22zM20 10h3v12h-3z" fill="#fff" />
+                <path d="M9 22V10h3v9.5h7V22zM20 10h3v12h-3z" fill="var(--accent-ink)" />
               </svg>
             </div>
             <div>
@@ -131,9 +138,9 @@ export default function App() {
             ))}
           </nav>
           <div className="sidebar-foot">
-            <button className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+            <button className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title={theme === 'dark' ? 'Switch to Sage Light' : 'Switch to Sage Nord'}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
-              <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+              <span>{theme === 'dark' ? 'Sage Light' : 'Sage Nord'}</span>
             </button>
           </div>
         </aside>
