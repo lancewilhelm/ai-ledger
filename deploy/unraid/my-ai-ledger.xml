@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>ai-ledger</Name>
+  <Repository>ghcr.io/lancewilhelm/ai-ledger:twilight</Repository>
+  <Registry>https://ghcr.io/lancewilhelm/ai-ledger</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/lancewilhelm/ai-ledger</Support>
+  <Project>https://github.com/lancewilhelm/ai-ledger</Project>
+  <Overview>Personal, lossless AI usage logger, raw transcript archive, and local monitoring dashboard for Codex, Claude Code, Antigravity, T3 Code, and Hermes.</Overview>
+  <Category>Tools: Status:Stable</Category>
+  <WebUI>http://[IP]:[PORT:8484]</WebUI>
+  <Config Name="Web UI &amp; Ingest Port" Target="8484" Default="8484" Mode="tcp" Description="HTTP port for the dashboard and collector ingest API. Restrict access via Tailscale or your local LAN." Type="Port" Display="always" Required="true" Mask="false">8484</Config>
+  <Config Name="Data Directory" Target="/data" Default="/mnt/user/ai-ledger" Mode="rw" Description="Persistent share for the SQLite database (ai-ledger.sqlite) and lossless raw archive (/data/archive)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/ai-ledger</Config>
+  <Config Name="Bind Address" Target="AI_LEDGER_BIND" Default="0.0.0.0:8484" Description="Internal bind address inside the container." Type="Variable" Display="advanced" Required="false" Mask="false">0.0.0.0:8484</Config>
+  <Config Name="Data Path (Container)" Target="AI_LEDGER_DATA_DIR" Default="/data" Description="Path inside the container for the database and raw archive." Type="Variable" Display="advanced" Required="false" Mask="false">/data</Config>
+  <Config Name="Keep All Snapshots" Target="AI_LEDGER_KEEP_ALL_SNAPSHOTS" Default="true" Description="Preserve every historical version of overwritten snapshots in /data/archive/versions/." Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="Admin Token (Optional)" Target="AI_LEDGER_ADMIN_TOKEN" Default="" Description="Optional Bearer token to protect /api/admin/* endpoints (device creation, revocation, reparse)." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Timezone" Target="TZ" Default="America/New_York" Description="IANA timezone name for timestamps and logs." Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+</Container>

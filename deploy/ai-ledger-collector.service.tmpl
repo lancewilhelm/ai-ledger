@@ -1,0 +1,13 @@
+[Unit]
+Description=AI Ledger Collector
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ai-ledger-collector daemon --interval 3m
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

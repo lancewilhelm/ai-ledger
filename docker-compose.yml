@@ -1,0 +1,26 @@
+services:
+  ai-ledger:
+    image: ghcr.io/lancewilhelm/ai-ledger:twilight
+    # To build locally from source instead of pulling from GHCR, comment out `image:` and uncomment `build: .`
+    # build: .
+    container_name: ai-ledger
+    restart: unless-stopped
+    # Restrict access to your LAN or Tailscale tailnet (for example, 100.x.y.z:8484:8484)
+    # so the dashboard and ingest API are never exposed to the public internet.
+    ports:
+      - "${AI_LEDGER_BIND_PORT:-8484}:8484"
+    environment:
+      - AI_LEDGER_BIND=0.0.0.0:8484
+      - AI_LEDGER_DATA_DIR=/data
+      - AI_LEDGER_KEEP_ALL_SNAPSHOTS=true
+      # Optional: uncomment to require a Bearer token on /api/admin/* endpoints
+      # - AI_LEDGER_ADMIN_TOKEN=${AI_LEDGER_ADMIN_TOKEN}
+      - TZ=${TZ:-UTC}
+    volumes:
+      # Persistent directory for raw archives + SQLite DB (for example, /mnt/user/ai-ledger on Unraid)
+      - ${AI_LEDGER_HOST_DATA:-./data}:/data
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/ai-ledger-server", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

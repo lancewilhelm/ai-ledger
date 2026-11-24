@@ -1,0 +1,125 @@
+name: Build & Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  build-and-push:
+    needs: verify
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decide Docker image tags
+        id: meta
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="ghcr.io/${OWNER}/ai-ledger"
+          TAGS="${IMAGE_NAME}:twilight"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAGS="${TAGS},${IMAGE_NAME}:stable"
+            TAGS="${TAGS},${IMAGE_NAME}:${GITHUB_REF##*/}"
+          fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Get build version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "version=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ steps.get_version.outputs.version }}
+
+  release-binaries:
+    if: github.event_name == 'release'
+    needs: verify
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build web dashboard
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          rm -rf ../internal/web/dist
+          cp -r dist ../internal/web/dist
+
+      - name: Build release binaries
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p release-dist
+          LDFLAGS="-s -w -X main.version=${TAG}"
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" -o release-dist/ai-ledger-collector-darwin-arm64 ./cmd/ai-ledger-collector
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" -o release-dist/ai-ledger-collector-darwin-amd64 ./cmd/ai-ledger-collector
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" -o release-dist/ai-ledger-collector-linux-amd64 ./cmd/ai-ledger-collector
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" -o release-dist/ai-ledger-collector-linux-arm64 ./cmd/ai-ledger-collector
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -ldflags="${LDFLAGS}" -o release-dist/ai-ledger-server-linux-amd64 ./cmd/ai-ledger-server
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" -o release-dist/ai-ledger-server-linux-arm64 ./cmd/ai-ledger-server
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="${LDFLAGS}" -o release-dist/ai-ledger-server-darwin-arm64 ./cmd/ai-ledger-server
+          (cd release-dist && sha256sum ai-ledger-* > SHA256SUMS.txt)
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release upload "${TAG}" release-dist/* --clobber

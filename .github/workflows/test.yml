@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build web dashboard
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          rm -rf ../internal/web/dist
+          cp -r dist ../internal/web/dist
+
+      - name: Vet and test Go packages
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+
+      - name: Verify multi-arch static Go builds
+        run: |
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/ai-ledger-server-linux-amd64 ./cmd/ai-ledger-server
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /tmp/ai-ledger-server-linux-arm64 ./cmd/ai-ledger-server
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /tmp/ai-ledger-collector-darwin-arm64 ./cmd/ai-ledger-collector
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/ai-ledger-collector-darwin-amd64 ./cmd/ai-ledger-collector
+          CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /tmp/ai-ledger-collector-linux-amd64 ./cmd/ai-ledger-collector
+          CGO_ENABLED=0 GOOS=linux  GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /tmp/ai-ledger-collector-linux-arm64 ./cmd/ai-ledger-collector
+
+      - name: Build production container
+        run: docker build -t ai-ledger:ci .

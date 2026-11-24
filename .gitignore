@@ -1,0 +1,8 @@
+bin/
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+web/node_modules/
+web/dist/
+.DS_Store
