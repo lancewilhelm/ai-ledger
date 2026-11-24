@@ -118,8 +118,11 @@ docker run -d \
 
 ### Option C: Unraid Docker Web UI
 
-1. Create a share on Unraid for AI Ledger data (for example, `ai-ledger`, which mounts at `/mnt/user/ai-ledger`).
-   - **Tip for SQLite performance:** If you have a cache pool, set the share's primary storage to your cache pool (or keep `ai-ledger.sqlite` on SSD/cache storage) for fast WAL writes and searches.
+1. Create a share on Unraid for the lossless raw session archive (for example, `ai-ledger`, which mounts at `/mnt/user/ai-ledger`):
+   - **Recommended storage layout (fast SQLite on cache + parity-protected raw archive on array):**
+     - Mount `/data` to your cache SSD `appdata` folder (`/mnt/cache/appdata/ai-ledger`, or `/mnt/user/appdata/ai-ledger` if `appdata` is cache-only). This keeps `ai-ledger.sqlite`, WAL writes, and FTS5 search fast without waking array disks every 3 minutes.
+     - Mount `/data/archive` separately to your `ai-ledger` share (`/mnt/user/ai-ledger`) configured with **Primary storage: Cache → Secondary storage: Array** (Mover action: `Cache → Array`). New log chunks write quietly to cache during the day, and Mover sweeps files onto the parity-protected array overnight so your raw session archive never fills up your cache SSD or bloats Appdata Backup runs. Even if a cache drive ever fails, `ai-ledger.sqlite` can be rebuilt completely from `/data/archive` with `ai-ledger-server reparse`.
+   - *(Alternatively, if you have plenty of mirrored cache space and prefer a single mount, map `/data` directly to `/mnt/cache/appdata/ai-ledger` and omit the `/data/archive` path.)*
 2. In Unraid, go to **Docker → Add Container** (or copy [deploy/unraid/my-ai-ledger.xml](deploy/unraid/my-ai-ledger.xml) into `/boot/config/plugins/dockerMan/templates-user/`).
 3. Fill in the container settings:
 
@@ -130,7 +133,8 @@ docker run -d \
 | **Network Type** | `Bridge` (or your custom Tailscale/Docker network) |
 | **WebUI** | `http://[IP]:[PORT:8484]` |
 | **Port** (Container `8484`) | `8484` (TCP) |
-| **Path** (Container `/data`) | `/mnt/user/ai-ledger` (Read/Write) |
+| **Path** (Container `/data`) | `/mnt/cache/appdata/ai-ledger` (Read/Write) — SQLite DB & indexes |
+| **Path** (Container `/data/archive`) | `/mnt/user/ai-ledger` (Read/Write) — raw session archive & snapshots |
 | **Variable** `TZ` | `America/New_York` (your IANA timezone) |
 | **Variable** `AI_LEDGER_KEEP_ALL_SNAPSHOTS` | `true` |
 | **Variable** `AI_LEDGER_ADMIN_TOKEN` | *(Optional)* A random secret to protect `/api/admin/*` |
