@@ -936,17 +936,26 @@ func (s *SQLiteStore) GetBreakdown(ctx context.Context, f QueryFilter, by string
 	return out, nil
 }
 
-func (s *SQLiteStore) GetTimeseries(ctx context.Context, f QueryFilter, bucket, groupBy string) ([]protocol.TimeseriesPoint, error) {
+func (s *SQLiteStore) GetTimeseries(ctx context.Context, f QueryFilter, bucket, groupBy string, tzOffsetMin int) ([]protocol.TimeseriesPoint, error) {
+	// Clamp to real-world offsets (UTC-12:00 .. UTC+14:00).
+	if tzOffsetMin < -12*60 || tzOffsetMin > 14*60 {
+		tzOffsetMin = 0
+	}
+	// The offset is an integer we formatted ourselves, so it is safe to inline.
+	local := fmt.Sprintf("u.timestamp, '%+d minutes'", tzOffsetMin)
 	var bucketExpr string
 	switch bucket {
 	case "hour":
+		// Hour buckets are absolute instants; the client renders them in local time.
 		bucketExpr = "strftime('%Y-%m-%dT%H:00:00Z', u.timestamp)"
 	case "week":
-		bucketExpr = "strftime('%Y-W%W', u.timestamp)"
+		// Key each week by the local date of its Monday ('weekday 0' moves to the
+		// next Sunday, or stays on a Sunday; minus 6 days lands on Monday).
+		bucketExpr = "date(" + local + ", 'weekday 0', '-6 days')"
 	case "month":
-		bucketExpr = "strftime('%Y-%m', u.timestamp)"
+		bucketExpr = "strftime('%Y-%m', " + local + ")"
 	default:
-		bucketExpr = "strftime('%Y-%m-%d', u.timestamp)"
+		bucketExpr = "date(" + local + ")"
 	}
 
 	var groupExpr string

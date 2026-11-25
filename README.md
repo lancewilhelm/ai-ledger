@@ -463,7 +463,7 @@ Schema changes are managed by versioned SQL files in `internal/store/migrations/
 |---|---|
 | `GET /api/health` | Health check and build version |
 | `GET /api/overview` | Aggregate totals, archive stats, and top breakdowns |
-| `GET /api/timeseries` | Time-bucketed tokens, cost, and calls (`bucket=hour\|day\|week`, `group_by=harness\|model\|device\|project`) |
+| `GET /api/timeseries` | Time-bucketed tokens, cost, and calls (`bucket=hour\|day\|week`, `group_by=harness\|model\|device\|project`, `tz_offset=<minutes east of UTC>` for local day and week buckets; weeks are keyed by their Monday) |
 | `GET /api/breakdown` | Detailed breakdown (`by=harness\|model\|device\|project`) |
 | `GET /api/sessions` | Paginated sessions list with filters and sorting |
 | `GET /api/sessions/{id}` | Session detail: messages, thinking blocks, tool calls, usage events, rate limits |

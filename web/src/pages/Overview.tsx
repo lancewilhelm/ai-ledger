@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
-import { api, filterParams } from '../api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api, filterParams, rangeBounds, tzOffsetMinutes } from '../api'
 import { useApp } from '../context'
-import { useAsync } from '../hooks'
+import { useAsync, usePersistentState } from '../hooks'
 import { fmtBytes, fmtCompact, fmtDate, fmtInt, fmtPct, fmtRelative, fmtUSD } from '../format'
 import type { BreakdownRow, OverviewResponse, TimeseriesResponse } from '../types'
 import { Card, Empty, ErrorBox, Icon, Segmented, Spinner, Tabs, assignSeriesColors, colorFor, type ColorMode } from '../components/ui'
-import TimeseriesChart, { type Bucket, type GroupBy, type Metric } from '../components/TimeseriesChart'
+import TimeseriesChart, { type Bucket, type ChartType, type GroupBy, type Metric } from '../components/TimeseriesChart'
 import Onboarding from '../components/Onboarding'
 
 function Kpi({ label, value, sub, children }: { label: string; value: string; sub?: React.ReactNode; children?: React.ReactNode }) {
@@ -155,11 +155,30 @@ export default function OverviewPage() {
   const [metric, setMetric] = useState<Metric>('tokens')
   const [bucket, setBucket] = useState<Bucket>(filters.range === '24h' ? 'hour' : 'day')
   const [groupBy, setGroupBy] = useState<GroupBy>('none')
+  const [chartType, setChartType] = usePersistentState<ChartType>('ail-chart-type', 'bar')
+
+  // Pick a matching bucket when the range changes: hourly for 24h, and back to
+  // daily when leaving 24h. Week stays selected if the user chose it.
+  const prevRange = useRef(filters.range)
+  useEffect(() => {
+    if (prevRange.current === filters.range) return
+    prevRange.current = filters.range
+    if (filters.range === '24h') setBucket('hour')
+    else setBucket((b) => (b === 'hour' ? 'day' : b))
+  }, [filters.range])
 
   const fkey = JSON.stringify(filters)
   const ov = useAsync<OverviewResponse>((s) => api.get('/api/overview', filterParams(filters), s), [fkey, refreshKey])
-  const ts = useAsync<TimeseriesResponse>(
-    (s) => api.get('/api/timeseries', filterParams(filters, { bucket, group_by: groupBy === 'none' ? '' : groupBy }), s),
+  const ts = useAsync<TimeseriesResponse & { from: Date | null; to: Date }>(
+    async (s) => {
+      // Resolve the range once so the chart's empty buckets match exactly what was queried.
+      const now = Date.now()
+      const bounds = rangeBounds(filters, now)
+      const params = filterParams(filters, { bucket, group_by: groupBy === 'none' ? '' : groupBy, tz_offset: tzOffsetMinutes() }, bounds)
+      const res = await api.get<TimeseriesResponse>('/api/timeseries', params, s)
+      const to = bounds.to && bounds.to.getTime() < now ? bounds.to : new Date(now)
+      return { ...res, from: bounds.from, to }
+    },
     [fkey, refreshKey, bucket, groupBy],
   )
 
@@ -243,6 +262,15 @@ export default function OverviewPage() {
                 { value: 'week', label: 'Week' },
               ]}
             />
+            <Segmented
+              size="sm"
+              value={chartType}
+              onChange={setChartType}
+              options={[
+                { value: 'bar', label: 'Bars' },
+                { value: 'line', label: 'Line' },
+              ]}
+            />
             <label className="select sm">
               <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} aria-label="Group by">
                 <option value="none">No grouping</option>
@@ -267,7 +295,7 @@ export default function OverviewPage() {
             <Empty title="No API calls in this range" icon="activity" />
           </div>
         ) : (
-          <TimeseriesChart points={points} metric={metric} bucket={bucket} groupBy={groupBy} />
+          <TimeseriesChart points={points} metric={metric} bucket={bucket} groupBy={groupBy} chartType={chartType} from={ts.data.from} to={ts.data.to} />
         )}
       </Card>
 

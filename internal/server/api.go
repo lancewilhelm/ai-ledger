@@ -96,7 +96,8 @@ func (s *Server) handleTimeseries(w http.ResponseWriter, r *http.Request) {
 		bucket = "day"
 	}
 	groupBy := r.URL.Query().Get("group_by")
-	pts, err := s.store.GetTimeseries(r.Context(), f, bucket, groupBy)
+	tzOffset := parseIntParam(r, "tz_offset", 0)
+	pts, err := s.store.GetTimeseries(r.Context(), f, bucket, groupBy, tzOffset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -62,7 +62,9 @@ type Store interface {
 
 	// Analytics & Dashboard Queries
 	GetOverview(ctx context.Context, f QueryFilter) (*protocol.OverviewResponse, error)
-	GetTimeseries(ctx context.Context, f QueryFilter, bucket, groupBy string) ([]protocol.TimeseriesPoint, error)
+	// tzOffsetMin is the caller's UTC offset in minutes (east positive). Day and
+	// week buckets are computed in that local time; hour buckets stay in UTC.
+	GetTimeseries(ctx context.Context, f QueryFilter, bucket, groupBy string, tzOffsetMin int) ([]protocol.TimeseriesPoint, error)
 	GetBreakdown(ctx context.Context, f QueryFilter, by string) ([]protocol.BreakdownRow, error)
 	ListSessions(ctx context.Context, params SessionListParams) ([]protocol.SessionSummary, int64, error)
 	GetSessionDetail(ctx context.Context, sessionID string) (*protocol.SessionDetail, error)

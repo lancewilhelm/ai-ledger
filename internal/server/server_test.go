@@ -191,6 +191,27 @@ func TestEndToEndCollectorIngestAndAPI(t *testing.T) {
 		t.Errorf("expected 2 timeseries points (codex + claude), got %d", len(tsResp.Points))
 	}
 
+	// Day buckets follow the caller's UTC offset. At UTC-11:00 the Codex calls
+	// (10:00Z, 10:05Z) fall on Nov 23 and the Claude call (11:00Z) falls on Nov 24.
+	tzResp := getJSON[struct {
+		Points []protocol.TimeseriesPoint `json:"points"`
+	}](t, ts.URL+"/api/timeseries?bucket=day&group_by=harness&tz_offset=-660")
+	gotDays := map[string]string{}
+	for _, p := range tzResp.Points {
+		gotDays[p.Group] = p.Bucket
+	}
+	if gotDays[protocol.SourceCodex] != "2026-11-23" || gotDays[protocol.SourceClaude] != "2026-11-24" {
+		t.Errorf("unexpected tz-shifted day buckets: %+v", gotDays)
+	}
+
+	// Week buckets are keyed by the local date of the week's Monday (Tue Nov 24 -> Mon Nov 23).
+	wkResp := getJSON[struct {
+		Points []protocol.TimeseriesPoint `json:"points"`
+	}](t, ts.URL+"/api/timeseries?bucket=week")
+	if len(wkResp.Points) != 1 || wkResp.Points[0].Bucket != "2026-11-23" || wkResp.Points[0].APICallCount != 3 {
+		t.Errorf("unexpected week buckets: %+v", wkResp.Points)
+	}
+
 	// Query /api/search (FTS5)
 	searchResp := getJSON[struct {
 		Hits []protocol.SearchHit `json:"hits"`
