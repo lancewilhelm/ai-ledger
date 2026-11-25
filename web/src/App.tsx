@@ -10,12 +10,14 @@ import OverviewPage from './pages/Overview'
 import SessionsPage from './pages/Sessions'
 import SearchPage from './pages/Search'
 import DevicesPage from './pages/Devices'
+import SettingsPage from './pages/Settings'
 
 const NAV: { view: View; label: string; icon: IconName }[] = [
   { view: 'overview', label: 'Overview', icon: 'grid' },
   { view: 'sessions', label: 'Sessions', icon: 'list' },
   { view: 'search', label: 'Search', icon: 'search' },
   { view: 'devices', label: 'Devices & Archive', icon: 'server' },
+  { view: 'settings', label: 'Settings', icon: 'sliders' },
 ]
 
 interface Route {
@@ -106,9 +108,11 @@ export default function App() {
   const openSession = useCallback((id: string) => writeHash({ view: parseHash().view, session: id }), [])
   const closeSession = useCallback(() => writeHash({ view: parseHash().view, session: null }), [])
 
+  const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
+
   const ctx: AppCtx = useMemo(
-    () => ({ filters, setFilter, refreshKey, options: opts.data, openSession, navigate, toast }),
-    [filters, setFilter, refreshKey, opts.data, openSession, navigate, toast],
+    () => ({ filters, setFilter, refreshKey, refresh, options: opts.data, openSession, navigate, toast }),
+    [filters, setFilter, refreshKey, refresh, opts.data, openSession, navigate, toast],
   )
 
   const activeCount = [filters.harness, filters.model, filters.device, filters.project].filter(Boolean).length
@@ -152,21 +156,24 @@ export default function App() {
               <Icon name="list" />
             </button>
             <h1 className="page-title">{NAV.find((n) => n.view === route.view)?.label}</h1>
-            <FilterBar
-              filters={filters}
-              options={opts.data}
-              onChange={setFilter}
-              onRange={(r: RangePreset) => setFilter('range', r)}
-              onClear={() => setFilters((f) => ({ ...DEFAULT_FILTERS, range: f.range }))}
-              activeCount={activeCount}
-              onRefresh={() => setRefreshKey((k) => k + 1)}
-            />
+            {route.view !== 'settings' && (
+              <FilterBar
+                filters={filters}
+                options={opts.data}
+                onChange={setFilter}
+                onRange={(r: RangePreset) => setFilter('range', r)}
+                onClear={() => setFilters((f) => ({ ...DEFAULT_FILTERS, range: f.range }))}
+                activeCount={activeCount}
+                onRefresh={refresh}
+              />
+            )}
           </header>
           <main className="content">
             {route.view === 'overview' && <OverviewPage />}
             {route.view === 'sessions' && <SessionsPage />}
             {route.view === 'search' && <SearchPage />}
             {route.view === 'devices' && <DevicesPage />}
+            {route.view === 'settings' && <SettingsPage />}
           </main>
         </div>
 

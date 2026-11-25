@@ -199,7 +199,7 @@ export function Pager({ offset, limit, total, onChange }: { offset: number; limi
 export type IconName =
   | 'grid' | 'list' | 'search' | 'server' | 'refresh' | 'sun' | 'moon' | 'x' | 'copy' | 'check' | 'download' | 'alert'
   | 'inbox' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'plus' | 'trash' | 'tool' | 'brain' | 'user' | 'bot'
-  | 'key' | 'filter' | 'zap' | 'database' | 'coins' | 'percent' | 'activity' | 'terminal'
+  | 'key' | 'filter' | 'zap' | 'database' | 'coins' | 'percent' | 'activity' | 'terminal' | 'sliders' | 'edit' | 'rotate-ccw'
 
 const PATHS: Record<IconName, ReactNode> = {
   grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
@@ -232,6 +232,9 @@ const PATHS: Record<IconName, ReactNode> = {
   percent: <><path d="M19 5 5 19" /><circle cx="7" cy="7" r="2.5" /><circle cx="17" cy="17" r="2.5" /></>,
   activity: <path d="M3 12h4l3-8 4 16 3-8h4" />,
   terminal: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" /></>,
+  sliders: <><line x1="4" y1="6" x2="20" y2="6" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="18" x2="20" y2="18" /><circle cx="9" cy="6" r="2" fill="var(--bg-elev)" /><circle cx="15" cy="12" r="2" fill="var(--bg-elev)" /><circle cx="10" cy="18" r="2" fill="var(--bg-elev)" /></>,
+  edit: <><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z" /></>,
+  'rotate-ccw': <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></>,
 }
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {

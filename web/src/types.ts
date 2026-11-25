@@ -245,3 +245,55 @@ export interface Filters {
   device: string
   project: string
 }
+
+export interface PricingOverrideRecord {
+  model: string
+  input_per_m: number
+  cached_input_per_m: number
+  cache_write_5m_per_m: number
+  cache_write_1h_per_m: number
+  output_per_m: number
+  notes?: string
+  updated_at: string
+}
+
+export interface PricingSourceInfo {
+  kind: 'override' | 'rates_file' | 'archived_rates' | 'builtin' | string
+  label: string
+  detail: string
+  models: number
+}
+
+export interface ModelRateView {
+  model: string
+  harnesses?: string[]
+  api_call_count?: number
+  total_tokens?: number
+  estimated_cost_usd?: number
+  matched_key?: string
+  match_type: string
+  source: 'override' | 'rates_file' | 'archived_rates' | 'builtin' | 'unmatched' | string
+  source_detail: string
+  is_override: boolean
+  input_per_m: number
+  cached_input_per_m: number
+  cache_write_5m_per_m: number
+  cache_write_1h_per_m: number
+  output_per_m: number
+  notes?: string
+  updated_at?: string
+  base_source?: string
+  base_detail?: string
+  base_input_per_m?: number
+  base_cached_input_per_m?: number
+  base_cache_write_5m_per_m?: number
+  base_cache_write_1h_per_m?: number
+  base_output_per_m?: number
+}
+
+export interface PricingResponse {
+  sources: PricingSourceInfo[]
+  observed_models: ModelRateView[]
+  catalog: ModelRateView[]
+  overrides: PricingOverrideRecord[]
+}

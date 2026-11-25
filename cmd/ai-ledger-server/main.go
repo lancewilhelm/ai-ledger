@@ -105,11 +105,24 @@ func openDeps(dataDir, ratesFile string, keepAll bool) (*store.SQLiteStore, *arc
 	}
 	calc := pricing.NewCalculator()
 	if ratesFile != "" {
-		if n, err := calc.LoadT3RatesFile(ratesFile); err != nil {
+		if n, err := calc.LoadCustomRatesFile(ratesFile); err != nil {
 			slog.Warn("could not load rates file", "path", ratesFile, "err", err)
 		} else {
 			slog.Info("loaded custom pricing rates", "path", ratesFile, "models", n)
 		}
+	}
+	if overrides, err := st.ListPricingOverrides(context.Background()); err == nil && len(overrides) > 0 {
+		entries := make([]pricing.OverrideEntry, 0, len(overrides))
+		for _, ov := range overrides {
+			entries = append(entries, pricing.OverrideEntry{
+				Model:     ov.Model,
+				Rate:      pricing.FromPerMillion(ov.InputPerM, ov.CachedInputPerM, ov.CacheWrite5mPerM, ov.CacheWrite1hPerM, ov.OutputPerM),
+				Notes:     ov.Notes,
+				UpdatedAt: ov.UpdatedAt,
+			})
+		}
+		calc.ReplaceOverrides(entries)
+		slog.Info("loaded manual pricing overrides", "models", len(entries))
 	}
 	return st, arch, calc, nil
 }

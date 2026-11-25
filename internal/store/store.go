@@ -68,4 +68,11 @@ type Store interface {
 	GetSessionDetail(ctx context.Context, sessionID string) (*protocol.SessionDetail, error)
 	SearchMessages(ctx context.Context, f QueryFilter, limit, offset int) ([]protocol.SearchHit, error)
 	GetFilterOptions(ctx context.Context) (*protocol.FilterOptions, error)
+
+	// Pricing Overrides & Cost Recalculation
+	ListPricingOverrides(ctx context.Context) ([]protocol.PricingOverrideRecord, error)
+	UpsertPricingOverride(ctx context.Context, rec protocol.PricingOverrideRecord) (*protocol.PricingOverrideRecord, error)
+	DeletePricingOverride(ctx context.Context, model string) error
+	ListObservedModels(ctx context.Context) ([]protocol.ObservedModelUsage, error)
+	RecalculateCosts(ctx context.Context, estimateFn func(harness, model string, input, cachedRead, cacheWrite5m, cacheWrite1h, output int64, currentCost float64) (float64, bool)) (updatedEvents int64, updatedSessions int64, err error)
 }

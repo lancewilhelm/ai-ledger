@@ -233,6 +233,58 @@ func TestEndToEndCollectorIngestAndAPI(t *testing.T) {
 		t.Errorf("unexpected reparse response %d: %s", repResp.StatusCode, string(repBody))
 	}
 
+	// Verify /api/pricing, manual override upsert + immediate recalculation, and delete/revert
+	pr0 := getJSON[protocol.PricingResponse](t, ts.URL+"/api/pricing")
+	if len(pr0.ObservedModels) != 2 || len(pr0.Sources) == 0 {
+		t.Fatalf("expected 2 observed models and sources, got models=%d sources=%d", len(pr0.ObservedModels), len(pr0.Sources))
+	}
+	origCost := ov.Totals.EstimatedCostUSD
+
+	putReq, _ := http.NewRequest(http.MethodPut, ts.URL+"/api/admin/pricing/overrides", strings.NewReader(`{
+		"model": "gpt-6.2-sol",
+		"input_per_m": 100.0,
+		"cached_input_per_m": 10.0,
+		"cache_write_5m_per_m": 125.0,
+		"cache_write_1h_per_m": 200.0,
+		"output_per_m": 500.0,
+		"notes": "Test override",
+		"recalculate": true
+	}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putResp, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putBody, _ := io.ReadAll(putResp.Body)
+	putResp.Body.Close()
+	if putResp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT pricing override HTTP %d: %s", putResp.StatusCode, string(putBody))
+	}
+
+	ovAfter := getJSON[protocol.OverviewResponse](t, ts.URL+"/api/overview")
+	if ovAfter.Totals.EstimatedCostUSD <= origCost {
+		t.Errorf("expected overview cost to increase after 10x override: before=%f after=%f", origCost, ovAfter.Totals.EstimatedCostUSD)
+	}
+
+	pr1 := getJSON[protocol.PricingResponse](t, ts.URL+"/api/pricing")
+	if len(pr1.Overrides) != 1 || pr1.Overrides[0].Model != "gpt-6.2-sol" {
+		t.Fatalf("expected 1 override for gpt-6.2-sol, got %+v", pr1.Overrides)
+	}
+
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/admin/pricing/overrides?model=gpt-6.2-sol&recalculate=true", nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delResp.Body.Close()
+	if delResp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE pricing override HTTP %d", delResp.StatusCode)
+	}
+	ovReverted := getJSON[protocol.OverviewResponse](t, ts.URL+"/api/overview")
+	if ovReverted.Totals.EstimatedCostUSD != origCost {
+		t.Errorf("expected cost to revert to %f, got %f", origCost, ovReverted.Totals.EstimatedCostUSD)
+	}
+
 	_ = dev
 }
 

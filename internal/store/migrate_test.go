@@ -16,8 +16,8 @@ func TestOpenSQLiteAppliesVersionedMigrations(t *testing.T) {
 		t.Fatalf("OpenSQLite fresh: %v", err)
 	}
 	res := s.MigrationResult()
-	if res.Applied != 1 || res.CurrentVersion != 1 {
-		t.Fatalf("expected 1 applied migration at v1, got %+v", res)
+	if res.Applied != 2 || res.CurrentVersion != 2 {
+		t.Fatalf("expected 2 applied migrations at v2, got %+v", res)
 	}
 	if res.BackupPath != "" {
 		t.Fatalf("expected no backup on fresh db, got %q", res.BackupPath)
@@ -30,7 +30,7 @@ func TestOpenSQLiteAppliesVersionedMigrations(t *testing.T) {
 		t.Fatalf("OpenSQLite reopen: %v", err)
 	}
 	defer s2.Close()
-	if got := s2.MigrationResult(); got.Applied != 0 || got.CurrentVersion != 1 {
+	if got := s2.MigrationResult(); got.Applied != 0 || got.CurrentVersion != 2 {
 		t.Fatalf("expected 0 applied on reopen, got %+v", got)
 	}
 }
@@ -52,21 +52,26 @@ func TestMigrateUpgradesExistingDBWithBackupAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read v1 migration: %v", err)
 	}
+	v2SQL, err := embeddedMigrationsFS.ReadFile("migrations/0002_pricing_overrides.sql")
+	if err != nil {
+		t.Fatalf("read v2 migration: %v", err)
+	}
 
-	// Simulate adding a v2 migration.
-	v2FS := fstest.MapFS{
-		"0001_initial_schema.sql": &fstest.MapFile{Data: v1SQL},
-		"0002_add_device_notes.sql": &fstest.MapFile{
+	// Simulate adding a v3 migration.
+	v3FS := fstest.MapFS{
+		"0001_initial_schema.sql":    &fstest.MapFile{Data: v1SQL},
+		"0002_pricing_overrides.sql": &fstest.MapFile{Data: v2SQL},
+		"0003_add_device_notes.sql": &fstest.MapFile{
 			Data: []byte(`ALTER TABLE devices ADD COLUMN notes TEXT NOT NULL DEFAULT '';`),
 		},
 	}
 
-	res, err := runMigrations(context.Background(), s.db, dbPath, v2FS)
+	res, err := runMigrations(context.Background(), s.db, dbPath, v3FS)
 	if err != nil {
-		t.Fatalf("runMigrations v2: %v", err)
+		t.Fatalf("runMigrations v3: %v", err)
 	}
-	if res.Applied != 1 || res.CurrentVersion != 2 {
-		t.Fatalf("expected 1 applied at v2, got %+v", res)
+	if res.Applied != 1 || res.CurrentVersion != 3 {
+		t.Fatalf("expected 1 applied at v3, got %+v", res)
 	}
 	if res.BackupPath == "" {
 		t.Fatalf("expected pre-migration backup file on upgrade")
@@ -84,16 +89,17 @@ func TestMigrateUpgradesExistingDBWithBackupAndRollback(t *testing.T) {
 		t.Fatalf("unexpected row after migration: name=%q notes=%q", name, notes)
 	}
 
-	// Simulate a broken v3 migration and confirm it rolls back cleanly without advancing version.
-	v3BrokenFS := fstest.MapFS{
-		"0001_initial_schema.sql":   v2FS["0001_initial_schema.sql"],
-		"0002_add_device_notes.sql": v2FS["0002_add_device_notes.sql"],
-		"0003_broken.sql": &fstest.MapFile{
+	// Simulate a broken v4 migration and confirm it rolls back cleanly without advancing version.
+	v4BrokenFS := fstest.MapFS{
+		"0001_initial_schema.sql":    v3FS["0001_initial_schema.sql"],
+		"0002_pricing_overrides.sql": v3FS["0002_pricing_overrides.sql"],
+		"0003_add_device_notes.sql":  v3FS["0003_add_device_notes.sql"],
+		"0004_broken.sql": &fstest.MapFile{
 			Data: []byte(`CREATE TABLE temp_ok (id TEXT); SELECT * FROM nonexistent_table;`),
 		},
 	}
-	if _, err := runMigrations(context.Background(), s.db, dbPath, v3BrokenFS); err == nil {
-		t.Fatalf("expected broken v3 migration to fail")
+	if _, err := runMigrations(context.Background(), s.db, dbPath, v4BrokenFS); err == nil {
+		t.Fatalf("expected broken v4 migration to fail")
 	}
 	exists, err := sqliteTableExists(context.Background(), s.db, "temp_ok")
 	if err != nil {
@@ -125,8 +131,8 @@ func TestMigrateBootstrapsPreVersionedDB(t *testing.T) {
 	}
 	defer s2.Close()
 
-	if got := s2.MigrationResult(); got.Applied != 1 || got.CurrentVersion != 1 {
-		t.Fatalf("expected v1 bootstrap, got %+v", got)
+	if got := s2.MigrationResult(); got.Applied != 2 || got.CurrentVersion != 2 {
+		t.Fatalf("expected v2 bootstrap, got %+v", got)
 	}
 	devs, err := s2.ListDevices(context.Background())
 	if err != nil || len(devs) != 1 || devs[0].Name != "legacy-box" {

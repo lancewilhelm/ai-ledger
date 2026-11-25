@@ -79,5 +79,6 @@ export const api = {
   get: <T>(path: string, params?: URLSearchParams, signal?: AbortSignal) =>
     request<T>('GET', params && [...params.keys()].length ? `${path}?${params}` : path, undefined, false, signal),
   adminPost: <T>(path: string, body: unknown = {}) => request<T>('POST', path, body, true),
+  adminPut: <T>(path: string, body: unknown = {}) => request<T>('PUT', path, body, true),
   adminDelete: <T>(path: string) => request<T>('DELETE', path, undefined, true),
 }

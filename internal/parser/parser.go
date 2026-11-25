@@ -90,6 +90,42 @@ func (z *zstdReadCloser) Close() error {
 	return z.f.Close()
 }
 
+// isSQLiteFile reports whether a filename looks like a raw or zstd-compressed SQLite file.
+func isSQLiteFile(path string) bool {
+	lower := strings.ToLower(path)
+	lower = strings.TrimSuffix(lower, ".zst")
+	return strings.HasSuffix(lower, ".sqlite") || strings.HasSuffix(lower, ".db")
+}
+
+// prepareSQLitePath returns a readable SQLite file path. If absPath is zstd-compressed
+// (.zst), it decompresses into a temporary file and returns a cleanup function.
+func prepareSQLitePath(absPath string) (string, func(), error) {
+	if !strings.HasSuffix(strings.ToLower(absPath), ".zst") {
+		return absPath, func() {}, nil
+	}
+	rc, err := openMaybeZstd(absPath)
+	if err != nil {
+		return "", nil, err
+	}
+	defer rc.Close()
+
+	tmpFile, err := os.CreateTemp("", "ai-ledger-parse-*.sqlite")
+	if err != nil {
+		return "", nil, err
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := io.Copy(tmpFile, rc); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return "", nil, fmt.Errorf("decompress sqlite %s: %w", filepath.Base(absPath), err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return "", nil, err
+	}
+	return tmpPath, func() { _ = os.Remove(tmpPath) }, nil
+}
+
 // scanJSONL streams lines of arbitrary length (up to 64 MiB per line) without hitting bufio.Scanner's 64 KiB cap.
 func scanJSONL(r io.Reader, fn func(lineNum int, line []byte) error) error {
 	br := bufio.NewReaderSize(r, 256*1024)

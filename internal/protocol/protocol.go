@@ -305,3 +305,68 @@ type FilterDeviceOpt struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
+
+// PricingOverrideRecord represents a persisted manual pricing override (USD per 1M tokens).
+type PricingOverrideRecord struct {
+	Model            string    `json:"model"`
+	InputPerM        float64   `json:"input_per_m"`
+	CachedInputPerM  float64   `json:"cached_input_per_m"`
+	CacheWrite5mPerM float64   `json:"cache_write_5m_per_m"`
+	CacheWrite1hPerM float64   `json:"cache_write_1h_per_m"`
+	OutputPerM       float64   `json:"output_per_m"`
+	Notes            string    `json:"notes,omitempty"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// ObservedModelUsage summarizes usage across all recorded events for a model.
+type ObservedModelUsage struct {
+	Model            string   `json:"model"`
+	Harnesses        []string `json:"harnesses"`
+	APICallCount     int64    `json:"api_call_count"`
+	TotalTokens      int64    `json:"total_tokens"`
+	EstimatedCostUSD float64  `json:"estimated_cost_usd"`
+}
+
+// PricingSourceInfo describes an active pricing source layer and its model count.
+type PricingSourceInfo struct {
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Detail string `json:"detail"`
+	Models int    `json:"models"`
+}
+
+// ModelRateView exposes a model's active per-million-token pricing and provenance.
+type ModelRateView struct {
+	Model                string     `json:"model"`
+	Harnesses            []string   `json:"harnesses,omitempty"`
+	APICallCount         int64      `json:"api_call_count,omitempty"`
+	TotalTokens          int64      `json:"total_tokens,omitempty"`
+	EstimatedCostUSD     float64    `json:"estimated_cost_usd,omitempty"`
+	MatchedKey           string     `json:"matched_key,omitempty"`
+	MatchType            string     `json:"match_type"`
+	Source               string     `json:"source"`
+	SourceDetail         string     `json:"source_detail"`
+	IsOverride           bool       `json:"is_override"`
+	InputPerM            float64    `json:"input_per_m"`
+	CachedInputPerM      float64    `json:"cached_input_per_m"`
+	CacheWrite5mPerM     float64    `json:"cache_write_5m_per_m"`
+	CacheWrite1hPerM     float64    `json:"cache_write_1h_per_m"`
+	OutputPerM           float64    `json:"output_per_m"`
+	Notes                string     `json:"notes,omitempty"`
+	UpdatedAt            *time.Time `json:"updated_at,omitempty"`
+	BaseSource           string     `json:"base_source,omitempty"`
+	BaseDetail           string     `json:"base_detail,omitempty"`
+	BaseInputPerM        *float64   `json:"base_input_per_m,omitempty"`
+	BaseCachedInputPerM  *float64   `json:"base_cached_input_per_m,omitempty"`
+	BaseCacheWrite5mPerM *float64   `json:"base_cache_write_5m_per_m,omitempty"`
+	BaseCacheWrite1hPerM *float64   `json:"base_cache_write_1h_per_m,omitempty"`
+	BaseOutputPerM       *float64   `json:"base_output_per_m,omitempty"`
+}
+
+// PricingResponse is returned by GET /api/pricing.
+type PricingResponse struct {
+	Sources        []PricingSourceInfo     `json:"sources"`
+	ObservedModels []ModelRateView         `json:"observed_models"`
+	Catalog        []ModelRateView         `json:"catalog"`
+	Overrides      []PricingOverrideRecord `json:"overrides"`
+}

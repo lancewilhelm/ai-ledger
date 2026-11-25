@@ -1,12 +1,13 @@
 import { createContext, useContext } from 'react'
 import type { FilterOptions, Filters } from './types'
 
-export type View = 'overview' | 'sessions' | 'search' | 'devices'
+export type View = 'overview' | 'sessions' | 'search' | 'devices' | 'settings'
 
 export interface AppCtx {
   filters: Filters
   setFilter: <K extends keyof Filters>(k: K, v: Filters[K]) => void
   refreshKey: number
+  refresh: () => void
   options: FilterOptions | null
   openSession: (id: string) => void
   navigate: (v: View) => void

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lancewilhelm/ai-ledger/internal/pricing"
+	"github.com/lancewilhelm/ai-ledger/internal/protocol"
 	"github.com/lancewilhelm/ai-ledger/internal/redact"
 	"github.com/lancewilhelm/ai-ledger/internal/store"
 )
@@ -407,4 +410,249 @@ func (s *Server) handleAdminRevokeDevice(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
+}
+
+// --- Pricing Endpoints ---
+
+func roundRate(v float64) float64 {
+	return math.Round(v*1e6) / 1e6
+}
+
+func ptrFloat(v float64) *float64 {
+	r := roundRate(v)
+	return &r
+}
+
+func (s *Server) handleGetPricing(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	observed, err := s.store.ListObservedModels(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	overrides, err := s.store.ListPricingOverrides(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	rawSources := s.pricing.Sources()
+	sources := make([]protocol.PricingSourceInfo, 0, len(rawSources))
+	for _, src := range rawSources {
+		sources = append(sources, protocol.PricingSourceInfo{
+			Kind:   src.Kind,
+			Label:  src.Label,
+			Detail: src.Detail,
+			Models: src.Models,
+		})
+	}
+
+	observedViews := make([]protocol.ModelRateView, 0, len(observed))
+	for _, om := range observed {
+		lk := s.pricing.LookupDetailed(om.Model)
+		pm := lk.Rate.PerMillion()
+		view := protocol.ModelRateView{
+			Model:            om.Model,
+			Harnesses:        om.Harnesses,
+			APICallCount:     om.APICallCount,
+			TotalTokens:      om.TotalTokens,
+			EstimatedCostUSD: om.EstimatedCostUSD,
+			MatchedKey:       lk.MatchedKey,
+			MatchType:        lk.MatchType,
+			Source:           lk.Source,
+			SourceDetail:     lk.SourceDetail,
+			IsOverride:       lk.Source == pricing.SourceOverride,
+			InputPerM:        roundRate(pm.Input),
+			CachedInputPerM:  roundRate(pm.CachedInput),
+			CacheWrite5mPerM: roundRate(pm.CacheWrite5m),
+			CacheWrite1hPerM: roundRate(pm.CacheWrite1h),
+			OutputPerM:       roundRate(pm.Output),
+			Notes:            lk.Notes,
+			UpdatedAt:        lk.UpdatedAt,
+		}
+		if lk.BaseFound {
+			bpm := lk.BaseRate.PerMillion()
+			view.BaseSource = lk.BaseSource
+			view.BaseDetail = lk.BaseDetail
+			view.BaseInputPerM = ptrFloat(bpm.Input)
+			view.BaseCachedInputPerM = ptrFloat(bpm.CachedInput)
+			view.BaseCacheWrite5mPerM = ptrFloat(bpm.CacheWrite5m)
+			view.BaseCacheWrite1hPerM = ptrFloat(bpm.CacheWrite1h)
+			view.BaseOutputPerM = ptrFloat(bpm.Output)
+		}
+		observedViews = append(observedViews, view)
+	}
+
+	catEntries := s.pricing.Catalog()
+	catalogViews := make([]protocol.ModelRateView, 0, len(catEntries))
+	for _, ce := range catEntries {
+		pm := ce.Rate.PerMillion()
+		view := protocol.ModelRateView{
+			Model:            ce.Model,
+			MatchedKey:       ce.Model,
+			MatchType:        "exact",
+			Source:           ce.Source,
+			SourceDetail:     ce.SourceDetail,
+			IsOverride:       ce.IsOverride,
+			InputPerM:        roundRate(pm.Input),
+			CachedInputPerM:  roundRate(pm.CachedInput),
+			CacheWrite5mPerM: roundRate(pm.CacheWrite5m),
+			CacheWrite1hPerM: roundRate(pm.CacheWrite1h),
+			OutputPerM:       roundRate(pm.Output),
+			Notes:            ce.Notes,
+			UpdatedAt:        ce.UpdatedAt,
+		}
+		if ce.BaseFound {
+			bpm := ce.BaseRate.PerMillion()
+			view.BaseSource = ce.BaseSource
+			view.BaseDetail = ce.BaseDetail
+			view.BaseInputPerM = ptrFloat(bpm.Input)
+			view.BaseCachedInputPerM = ptrFloat(bpm.CachedInput)
+			view.BaseCacheWrite5mPerM = ptrFloat(bpm.CacheWrite5m)
+			view.BaseCacheWrite1hPerM = ptrFloat(bpm.CacheWrite1h)
+			view.BaseOutputPerM = ptrFloat(bpm.Output)
+		}
+		catalogViews = append(catalogViews, view)
+	}
+
+	if overrides == nil {
+		overrides = []protocol.PricingOverrideRecord{}
+	}
+
+	writeJSON(w, http.StatusOK, protocol.PricingResponse{
+		Sources:        sources,
+		ObservedModels: observedViews,
+		Catalog:        catalogViews,
+		Overrides:      overrides,
+	})
+}
+
+func (s *Server) handleAdminUpsertPricingOverride(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Model            string  `json:"model"`
+		InputPerM        float64 `json:"input_per_m"`
+		CachedInputPerM  float64 `json:"cached_input_per_m"`
+		CacheWrite5mPerM float64 `json:"cache_write_5m_per_m"`
+		CacheWrite1hPerM float64 `json:"cache_write_1h_per_m"`
+		OutputPerM       float64 `json:"output_per_m"`
+		Notes            string  `json:"notes"`
+		Recalculate      *bool   `json:"recalculate"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	model := strings.ToLower(strings.TrimSpace(body.Model))
+	if model == "" {
+		writeError(w, http.StatusBadRequest, "model is required")
+		return
+	}
+	for name, val := range map[string]float64{
+		"input_per_m":          body.InputPerM,
+		"cached_input_per_m":   body.CachedInputPerM,
+		"cache_write_5m_per_m": body.CacheWrite5mPerM,
+		"cache_write_1h_per_m": body.CacheWrite1hPerM,
+		"output_per_m":         body.OutputPerM,
+	} {
+		if math.IsNaN(val) || math.IsInf(val, 0) || val < 0 {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("%s must be a non-negative finite number", name))
+			return
+		}
+	}
+
+	saved, err := s.store.UpsertPricingOverride(r.Context(), protocol.PricingOverrideRecord{
+		Model:            model,
+		InputPerM:        body.InputPerM,
+		CachedInputPerM:  body.CachedInputPerM,
+		CacheWrite5mPerM: body.CacheWrite5mPerM,
+		CacheWrite1hPerM: body.CacheWrite1hPerM,
+		OutputPerM:       body.OutputPerM,
+		Notes:            body.Notes,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.pricing.SetOverride(pricing.OverrideEntry{
+		Model:     saved.Model,
+		Rate:      pricing.FromPerMillion(saved.InputPerM, saved.CachedInputPerM, saved.CacheWrite5mPerM, saved.CacheWrite1hPerM, saved.OutputPerM),
+		Notes:     saved.Notes,
+		UpdatedAt: saved.UpdatedAt,
+	})
+
+	shouldRecalc := body.Recalculate == nil || *body.Recalculate
+	var updatedEvents, updatedSessions int64
+	if shouldRecalc {
+		updatedEvents, updatedSessions, err = s.RecalculateUsageCosts(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("saved override, but recalculate failed: %v", err))
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"override":         saved,
+		"recalculated":     shouldRecalc,
+		"updated_events":   updatedEvents,
+		"updated_sessions": updatedSessions,
+	})
+}
+
+func (s *Server) handleAdminDeletePricingOverride(w http.ResponseWriter, r *http.Request) {
+	model := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("model")))
+	if model == "" {
+		writeError(w, http.StatusBadRequest, "model query parameter is required")
+		return
+	}
+	if err := s.store.DeletePricingOverride(r.Context(), model); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "pricing override not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.pricing.DeleteOverride(model)
+
+	shouldRecalc := r.URL.Query().Get("recalculate") != "false" && r.URL.Query().Get("recalculate") != "0"
+	var updatedEvents, updatedSessions int64
+	if shouldRecalc {
+		var err error
+		updatedEvents, updatedSessions, err = s.RecalculateUsageCosts(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("deleted override, but recalculate failed: %v", err))
+			return
+		}
+		// If Hermes had archived files and this model may have used Hermes-reported costs,
+		// re-parse Hermes files so provider-reported costs are restored cleanly.
+		if files, ferr := s.store.ListAllRawFiles(r.Context()); ferr == nil {
+			for _, f := range files {
+				if f.Source == protocol.SourceHermes {
+					_ = s.ParseFileNow(r.Context(), f.ID)
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":           "deleted",
+		"model":            model,
+		"recalculated":     shouldRecalc,
+		"updated_events":   updatedEvents,
+		"updated_sessions": updatedSessions,
+	})
+}
+
+func (s *Server) handleAdminRecalculatePricing(w http.ResponseWriter, r *http.Request) {
+	updatedEvents, updatedSessions, err := s.RecalculateUsageCosts(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"updated_events":   updatedEvents,
+		"updated_sessions": updatedSessions,
+	})
 }

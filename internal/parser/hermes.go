@@ -14,11 +14,17 @@ import (
 )
 
 func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.ParsedFileBundle, error) {
-	if !strings.HasSuffix(strings.ToLower(in.AbsPath), ".db") && !strings.HasSuffix(strings.ToLower(in.AbsPath), ".sqlite") {
+	if !isSQLiteFile(in.AbsPath) {
 		return &store.ParsedFileBundle{}, nil
 	}
 
-	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", in.AbsPath)
+	dbPath, cleanup, err := prepareSQLitePath(in.AbsPath)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -86,7 +92,9 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 		}
 
 		calcCost := r.Pricing.EstimateCost(model, inTok, crTok, cwTok, 0, outTok)
-		if calcCost == 0 && repCost != nil {
+		if !r.Pricing.HasOverride(model) && repCost != nil && *repCost > 0 {
+			calcCost = *repCost
+		} else if calcCost == 0 && repCost != nil {
 			calcCost = *repCost
 		}
 		if title == "" {
@@ -297,12 +305,17 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 			if ts.IsZero() {
 				ts = sess.StartedAt
 			}
-			cost := actC
-			if cost == 0 {
-				cost = estC
-			}
-			if cost == 0 {
+			var cost float64
+			if r.Pricing.HasOverride(model) {
 				cost = r.Pricing.EstimateCost(model, inT, crT, cwT, 0, outT)
+			} else {
+				cost = actC
+				if cost == 0 {
+					cost = estC
+				}
+				if cost == 0 {
+					cost = r.Pricing.EstimateCost(model, inT, crT, cwT, 0, outT)
+				}
 			}
 			ru := usageBySession[hSID]
 			if ru == nil {

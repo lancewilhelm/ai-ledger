@@ -16,11 +16,17 @@ import (
 // Rather than double-counting usage already recorded in native Codex/Claude/Antigravity logs,
 // it produces T3ThreadLink entries that enrich native sessions with project names and thread titles.
 func (r *Registry) parseT3(ctx context.Context, in FileInput) (*store.ParsedFileBundle, error) {
-	if !strings.HasSuffix(strings.ToLower(in.AbsPath), ".sqlite") && !strings.HasSuffix(strings.ToLower(in.AbsPath), ".db") {
+	if !isSQLiteFile(in.AbsPath) {
 		return &store.ParsedFileBundle{}, nil
 	}
 
-	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", in.AbsPath)
+	dbPath, cleanup, err := prepareSQLitePath(in.AbsPath)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	dsn := fmt.Sprintf("file:%s?mode=ro&_pragma=busy_timeout(5000)", dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

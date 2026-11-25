@@ -71,10 +71,48 @@ func New(cfg Config, st store.Store, arch *archive.Store, calc *pricing.Calculat
 		parseCh:      make(chan string, 4096),
 		stopCh:       make(chan struct{}),
 	}
+	s.syncPricingOverrides(context.Background())
 	s.registerRoutes()
 	s.workerWg.Add(1)
 	go s.parseWorker()
 	return s
+}
+
+func (s *Server) syncPricingOverrides(ctx context.Context) {
+	if s.store == nil || s.pricing == nil {
+		return
+	}
+	overrides, err := s.store.ListPricingOverrides(ctx)
+	if err != nil {
+		s.log.Warn("load pricing overrides failed", "err", err)
+		return
+	}
+	entries := make([]pricing.OverrideEntry, 0, len(overrides))
+	for _, ov := range overrides {
+		entries = append(entries, pricing.OverrideEntry{
+			Model:     ov.Model,
+			Rate:      pricing.FromPerMillion(ov.InputPerM, ov.CachedInputPerM, ov.CacheWrite5mPerM, ov.CacheWrite1hPerM, ov.OutputPerM),
+			Notes:     ov.Notes,
+			UpdatedAt: ov.UpdatedAt,
+		})
+	}
+	s.pricing.ReplaceOverrides(entries)
+}
+
+// RecalculateUsageCosts updates usage_events and sessions costs from the current pricing calculator.
+func (s *Server) RecalculateUsageCosts(ctx context.Context) (updatedEvents int64, updatedSessions int64, err error) {
+	return s.store.RecalculateCosts(ctx, func(harness, model string, input, cachedRead, cacheWrite5m, cacheWrite1h, output int64, currentCost float64) (float64, bool) {
+		if harness == protocol.SourceHermes {
+			if s.pricing.HasOverride(model) {
+				return s.pricing.EstimateCost(model, input, cachedRead, cacheWrite5m, cacheWrite1h, output), true
+			}
+			if currentCost == 0 {
+				return s.pricing.EstimateCost(model, input, cachedRead, cacheWrite5m, cacheWrite1h, output), true
+			}
+			return currentCost, false
+		}
+		return s.pricing.EstimateCost(model, input, cachedRead, cacheWrite5m, cacheWrite1h, output), true
+	})
 }
 
 // Close gracefully stops the background parser worker.
@@ -110,12 +148,16 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/devices", s.handleListDevices)
 	s.mux.HandleFunc("GET /api/files", s.handleListFiles)
 	s.mux.HandleFunc("GET /api/filters", s.handleFilters)
+	s.mux.HandleFunc("GET /api/pricing", s.handleGetPricing)
 	s.mux.HandleFunc("GET /api/export/training", s.handleExportTraining)
 
 	// Admin API
 	s.mux.HandleFunc("POST /api/admin/reparse", s.withAdminAuth(s.handleAdminReparse))
 	s.mux.HandleFunc("POST /api/admin/devices", s.withAdminAuth(s.handleAdminCreateDevice))
 	s.mux.HandleFunc("DELETE /api/admin/devices/{id}", s.withAdminAuth(s.handleAdminRevokeDevice))
+	s.mux.HandleFunc("PUT /api/admin/pricing/overrides", s.withAdminAuth(s.handleAdminUpsertPricingOverride))
+	s.mux.HandleFunc("DELETE /api/admin/pricing/overrides", s.withAdminAuth(s.handleAdminDeletePricingOverride))
+	s.mux.HandleFunc("POST /api/admin/pricing/recalculate", s.withAdminAuth(s.handleAdminRecalculatePricing))
 
 	// Embedded Web Dashboard (SPA fallback)
 	if s.cfg.WebFS != nil {

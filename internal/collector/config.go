@@ -31,6 +31,7 @@ type SourcesConfig struct {
 	DisableT3       bool   `json:"disable_t3,omitempty"`
 	DisableHermes   bool   `json:"disable_hermes,omitempty"`
 	DisableSQLite   bool   `json:"disable_sqlite_snapshots,omitempty"`
+	FullT3Snapshot  bool   `json:"full_t3_snapshot,omitempty"` // default false: extract compact T3 metadata/orchestration tables only
 }
 
 // ExtraSource lets users archive arbitrary extra directories (e.g., opencode, gemini CLI, cursor).

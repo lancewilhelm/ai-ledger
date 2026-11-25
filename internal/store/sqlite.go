@@ -366,7 +366,7 @@ func (s *SQLiteStore) ListAllRawFiles(ctx context.Context) ([]protocol.RawFileRe
 		SELECT id, device_id, source, rel_path, file_kind, archive_path, byte_size, sha256, header_sha256,
 		       parse_status, parse_error, parsed_at, created_at, updated_at
 		FROM raw_files
-		ORDER BY CASE WHEN source = 't3' THEN 0 ELSE 1 END, created_at ASC
+		ORDER BY CASE WHEN source = 't3' THEN 0 ELSE 1 END, updated_at ASC, created_at ASC
 	`)
 	if err != nil {
 		return nil, err
@@ -1369,4 +1369,192 @@ func (s *SQLiteStore) GetFilterOptions(ctx context.Context) (*protocol.FilterOpt
 		rows.Close()
 	}
 	return opts, nil
+}
+
+// --- Pricing Overrides & Cost Recalculation ---
+
+func (s *SQLiteStore) ListPricingOverrides(ctx context.Context) ([]protocol.PricingOverrideRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT model, input_per_m, cached_input_per_m, cache_write_5m_per_m, cache_write_1h_per_m, output_per_m, notes, updated_at
+		FROM pricing_overrides
+		ORDER BY model ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []protocol.PricingOverrideRecord
+	for rows.Next() {
+		var r protocol.PricingOverrideRecord
+		var upd string
+		if err := rows.Scan(
+			&r.Model, &r.InputPerM, &r.CachedInputPerM, &r.CacheWrite5mPerM, &r.CacheWrite1hPerM,
+			&r.OutputPerM, &r.Notes, &upd,
+		); err != nil {
+			return nil, err
+		}
+		r.UpdatedAt = parseTimeStr(upd)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) UpsertPricingOverride(ctx context.Context, rec protocol.PricingOverrideRecord) (*protocol.PricingOverrideRecord, error) {
+	model := strings.ToLower(strings.TrimSpace(rec.Model))
+	if model == "" {
+		return nil, fmt.Errorf("model is required")
+	}
+	now := time.Now().UTC()
+	rec.Model = model
+	rec.UpdatedAt = now
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO pricing_overrides (
+			model, input_per_m, cached_input_per_m, cache_write_5m_per_m, cache_write_1h_per_m,
+			output_per_m, notes, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(model) DO UPDATE SET
+			input_per_m = excluded.input_per_m,
+			cached_input_per_m = excluded.cached_input_per_m,
+			cache_write_5m_per_m = excluded.cache_write_5m_per_m,
+			cache_write_1h_per_m = excluded.cache_write_1h_per_m,
+			output_per_m = excluded.output_per_m,
+			notes = excluded.notes,
+			updated_at = excluded.updated_at
+	`, rec.Model, rec.InputPerM, rec.CachedInputPerM, rec.CacheWrite5mPerM, rec.CacheWrite1hPerM,
+		rec.OutputPerM, strings.TrimSpace(rec.Notes), formatTime(now))
+	if err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+func (s *SQLiteStore) DeletePricingOverride(ctx context.Context, model string) error {
+	model = strings.ToLower(strings.TrimSpace(model))
+	res, err := s.db.ExecContext(ctx, `DELETE FROM pricing_overrides WHERE model = ?`, model)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ListObservedModels(ctx context.Context) ([]protocol.ObservedModelUsage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			model,
+			GROUP_CONCAT(DISTINCT harness) AS harnesses,
+			COUNT(*) AS api_calls,
+			COALESCE(SUM(input_tokens + cached_input_tokens + cache_write_5m_tokens + cache_write_1h_tokens + output_tokens), 0) AS total_tokens,
+			COALESCE(SUM(estimated_cost_usd), 0) AS cost
+		FROM usage_events
+		WHERE model != ''
+		GROUP BY model
+		ORDER BY cost DESC, total_tokens DESC, model ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []protocol.ObservedModelUsage
+	for rows.Next() {
+		var u protocol.ObservedModelUsage
+		var harnessesCSV sql.NullString
+		if err := rows.Scan(&u.Model, &harnessesCSV, &u.APICallCount, &u.TotalTokens, &u.EstimatedCostUSD); err != nil {
+			return nil, err
+		}
+		if harnessesCSV.Valid && harnessesCSV.String != "" {
+			for _, h := range strings.Split(harnessesCSV.String, ",") {
+				h = strings.TrimSpace(h)
+				if h != "" {
+					u.Harnesses = append(u.Harnesses, h)
+				}
+			}
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) RecalculateCosts(
+	ctx context.Context,
+	estimateFn func(harness, model string, input, cachedRead, cacheWrite5m, cacheWrite1h, output int64, currentCost float64) (float64, bool),
+) (int64, int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	type pendingUpdate struct {
+		id      string
+		newCost float64
+	}
+	var updates []pendingUpdate
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, harness, model, input_tokens, cached_input_tokens, cache_write_5m_tokens, cache_write_1h_tokens, output_tokens, estimated_cost_usd
+		FROM usage_events
+	`)
+	if err != nil {
+		return 0, 0, err
+	}
+	for rows.Next() {
+		var (
+			id, harness, model             string
+			inT, crT, cw5T, cw1T, outT     int64
+			curCost                        float64
+		)
+		if err := rows.Scan(&id, &harness, &model, &inT, &crT, &cw5T, &cw1T, &outT, &curCost); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		newCost, shouldUpdate := estimateFn(harness, model, inT, crT, cw5T, cw1T, outT, curCost)
+		if shouldUpdate && newCost != curCost {
+			updates = append(updates, pendingUpdate{id: id, newCost: newCost})
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return 0, 0, err
+	}
+
+	var updatedEvents int64
+	if len(updates) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `UPDATE usage_events SET estimated_cost_usd = ? WHERE id = ?`)
+		if err != nil {
+			return 0, 0, err
+		}
+		for _, u := range updates {
+			if _, err := stmt.ExecContext(ctx, u.newCost, u.id); err != nil {
+				stmt.Close()
+				return 0, 0, err
+			}
+			updatedEvents++
+		}
+		stmt.Close()
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE sessions
+		SET estimated_cost_usd = COALESCE(
+			(SELECT SUM(u.estimated_cost_usd) FROM usage_events u WHERE u.session_id = sessions.id),
+			estimated_cost_usd
+		)
+		WHERE id IN (SELECT DISTINCT session_id FROM usage_events)
+	`)
+	if err != nil {
+		return 0, 0, err
+	}
+	updatedSessions, _ := res.RowsAffected()
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+	return updatedEvents, updatedSessions, nil
 }

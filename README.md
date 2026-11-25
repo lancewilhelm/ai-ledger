@@ -31,8 +31,8 @@ Mac / Linux devices (ai-ledger-collector)
   ├── Codex        (~/.codex/sessions/**/*.jsonl[.zst])
   ├── Claude Code  (~/.claude/projects/**/*.jsonl)
   ├── Antigravity  (~/.t3/userdata/providers/antigravity/**/transcript_full.jsonl)
-  ├── T3 Code      (~/.t3/userdata/statev2.sqlite online snapshot + usage-model-rates.json)
-  └── Hermes       (~/.hermes/state.db online snapshot)
+  ├── T3 Code      (~/.t3/userdata/statev2.sqlite slim metadata .zst + usage-model-rates.json)
+  └── Hermes       (~/.hermes/state.db online snapshot .zst)
             │
             │  Incremental chunked HTTP + per-device Bearer token (LAN / Tailscale)
             ▼
@@ -382,7 +382,8 @@ The collector configuration lives at `~/.config/ai-ledger/collector.json`. You c
     "claude_dir": "~/.claude",
     "antigravity_dir": "~/.t3/userdata/providers/antigravity",
     "t3_dir": "~/.t3/userdata",
-    "hermes_dir": "~/.hermes"
+    "hermes_dir": "~/.hermes",
+    "full_t3_snapshot": false
   },
   "extra_sources": [
     {
@@ -469,7 +470,11 @@ Schema changes are managed by versioned SQL files in `internal/store/migrations/
 | `GET /api/devices` | Registered devices, online status, archive size, and token totals |
 | `GET /api/files` | Archived raw files and parse status |
 | `GET /api/filters` | Distinct harnesses, models, devices, and projects |
+| `GET /api/pricing` | Active pricing sources, observed model rates, full catalog, and manual overrides |
 | `GET /api/export/training` | Streaming JSONL export (`redact=true`, `thinking=true`, `tools=true`) |
 | `POST /api/admin/reparse` | Re-parse one or all archived files |
 | `POST /api/admin/devices` | Create a new device token |
 | `DELETE /api/admin/devices/{id}` | Revoke a device token |
+| `PUT /api/admin/pricing/overrides` | Save a manual per-model pricing override (with optional immediate cost recalculation) |
+| `DELETE /api/admin/pricing/overrides?model=...` | Delete a manual pricing override and revert to default |
+| `POST /api/admin/pricing/recalculate` | Recalculate stored usage event and session costs from active rates |

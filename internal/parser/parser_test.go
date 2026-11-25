@@ -203,6 +203,31 @@ func TestParseT3AndHermesSQLite(t *testing.T) {
 		t.Fatalf("unexpected T3 links: %+v", tb.T3Links)
 	}
 
+	// Also verify zstd-compressed T3 snapshot (.sqlite.zst)
+	t3ZstPath := filepath.Join(dir, "statev2-meta.sqlite.zst")
+	t3Raw, err := os.ReadFile(t3Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zEnc, _ := zstd.NewWriter(nil)
+	if err := os.WriteFile(t3ZstPath, zEnc.EncodeAll(t3Raw, nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	zEnc.Close()
+	tbZ, err := reg.Parse(context.Background(), parser.FileInput{
+		FileID:   "ft3z",
+		DeviceID: "dev1",
+		Source:   protocol.SourceT3,
+		RelPath:  "statev2-meta.sqlite.zst",
+		AbsPath:  t3ZstPath,
+	})
+	if err != nil {
+		t.Fatalf("parse t3 zst: %v", err)
+	}
+	if len(tbZ.T3Links) != 1 || tbZ.T3Links[0].NativeSessionID != "01a20e77-1111" {
+		t.Fatalf("unexpected T3 zst links: %+v", tbZ.T3Links)
+	}
+
 	// Create mock Hermes state.db
 	hPath := filepath.Join(dir, "state.db")
 	hdb, err := sql.Open("sqlite", hPath)
@@ -252,6 +277,31 @@ func TestParseT3AndHermesSQLite(t *testing.T) {
 	}
 	if hb.Sessions[0].Title != "Hermes Test" || hb.Usage[0].EstimatedCostUSD != 0.02 || hb.Sessions[0].EstimatedCostUSD != 0.02 {
 		t.Errorf("unexpected hermes values: %+v %+v", hb.Sessions[0], hb.Usage[0])
+	}
+
+	// Also verify zstd-compressed Hermes snapshot (.db.zst)
+	hZstPath := filepath.Join(dir, "state.db.zst")
+	hRaw, err := os.ReadFile(hPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zEnc2, _ := zstd.NewWriter(nil)
+	if err := os.WriteFile(hZstPath, zEnc2.EncodeAll(hRaw, nil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	zEnc2.Close()
+	hbZ, err := reg.Parse(context.Background(), parser.FileInput{
+		FileID:   "fhermesz",
+		DeviceID: "dev2",
+		Source:   protocol.SourceHermes,
+		RelPath:  "state.db.zst",
+		AbsPath:  hZstPath,
+	})
+	if err != nil {
+		t.Fatalf("parse hermes zst: %v", err)
+	}
+	if len(hbZ.Sessions) != 1 || len(hbZ.Messages) != 2 || len(hbZ.Usage) != 1 {
+		t.Fatalf("unexpected hermes zst bundle: sessions=%d msgs=%d usage=%d", len(hbZ.Sessions), len(hbZ.Messages), len(hbZ.Usage))
 	}
 }
 

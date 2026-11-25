@@ -177,9 +177,13 @@ func Discover(cfg Config) ([]CandidateFile, error) {
 			t3DB := filepath.Join(cfg.Sources.T3Dir, "statev2.sqlite")
 			if st, err := os.Stat(t3DB); err == nil && st.Size() > 0 {
 				mtime := maxSQLiteMtime(t3DB, st.ModTime().Unix())
+				rel := "statev2-meta.sqlite.zst"
+				if cfg.Sources.FullT3Snapshot {
+					rel = "statev2.sqlite.zst"
+				}
 				out = append(out, CandidateFile{
 					Source:   protocol.SourceT3,
-					RelPath:  "statev2.sqlite",
+					RelPath:  rel,
 					AbsPath:  t3DB,
 					FileKind: protocol.FileKindSQLiteSnapshot,
 					Size:     st.Size(),
@@ -190,14 +194,14 @@ func Discover(cfg Config) ([]CandidateFile, error) {
 		}
 	}
 
-	// 5. Hermes: ~/.hermes/state.db online snapshot
+	// 5. Hermes: ~/.hermes/state.db online snapshot (zstd-compressed)
 	if !cfg.Sources.DisableHermes && !cfg.Sources.DisableSQLite && dirExists(cfg.Sources.HermesDir) {
 		hDB := filepath.Join(cfg.Sources.HermesDir, "state.db")
 		if st, err := os.Stat(hDB); err == nil && st.Size() > 0 {
 			mtime := maxSQLiteMtime(hDB, st.ModTime().Unix())
 			out = append(out, CandidateFile{
 				Source:   protocol.SourceHermes,
-				RelPath:  "state.db",
+				RelPath:  "state.db.zst",
 				AbsPath:  hDB,
 				FileKind: protocol.FileKindSQLiteSnapshot,
 				Size:     st.Size(),
@@ -241,9 +245,13 @@ func Discover(cfg Config) ([]CandidateFile, error) {
 			} else if ext == ".db" || ext == ".sqlite" {
 				fk = protocol.FileKindSQLiteSnapshot
 			}
+			relPath := filepath.ToSlash(rel)
+			if fk == protocol.FileKindSQLiteSnapshot && !strings.HasSuffix(strings.ToLower(relPath), ".zst") {
+				relPath += ".zst"
+			}
 			out = append(out, CandidateFile{
 				Source:   ex.Name,
-				RelPath:  filepath.ToSlash(rel),
+				RelPath:  relPath,
 				AbsPath:  path,
 				FileKind: fk,
 				Size:     info.Size(),

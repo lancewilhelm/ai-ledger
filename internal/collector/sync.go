@@ -351,16 +351,39 @@ func (s *Syncer) syncSnapshotFile(ctx context.Context, f CandidateFile, progress
 			s.log.Info("[dry-run] would snapshot SQLite DB", "source", f.Source, "path", f.RelPath, "bytes", f.Size)
 			return f.Size, true, nil
 		}
-		if s.verbose {
-			s.log.Info("creating SQLite online snapshot", "progress", progress, "source", f.Source, "path", f.RelPath, "bytes", f.Size)
+		var snapPath string
+		var err error
+		if f.Source == protocol.SourceT3 && !s.cfg.Sources.FullT3Snapshot {
+			if s.verbose {
+				s.log.Info("extracting slim T3 metadata snapshot", "progress", progress, "source", f.Source, "path", f.RelPath, "source_bytes", f.Size)
+			}
+			snapPath, err = CreateT3MetadataSnapshot(ctx, f.AbsPath)
+		} else {
+			if s.verbose {
+				s.log.Info("creating SQLite online snapshot", "progress", progress, "source", f.Source, "path", f.RelPath, "bytes", f.Size)
+			}
+			snapPath, err = CreateSQLiteSnapshot(ctx, f.AbsPath)
 		}
-		snapPath, err := CreateSQLiteSnapshot(ctx, f.AbsPath)
 		if err != nil {
 			return 0, false, fmt.Errorf("sqlite snapshot: %w", err)
 		}
-		uploadPath = snapPath
 		cleanupDir = filepath.Dir(snapPath)
 		defer os.RemoveAll(cleanupDir)
+
+		zstPath := snapPath + ".zst"
+		compSize, cerr := CompressFileZstd(snapPath, zstPath)
+		if cerr != nil {
+			return 0, false, fmt.Errorf("compress sqlite snapshot: %w", cerr)
+		}
+		if s.verbose {
+			var rawSnapSize int64
+			if st, serr := os.Stat(snapPath); serr == nil {
+				rawSnapSize = st.Size()
+			}
+			s.log.Info("compressed SQLite snapshot", "progress", progress, "source", f.Source, "path", f.RelPath, "snapshot_bytes", rawSnapSize, "compressed_bytes", compSize)
+		}
+		_ = os.Remove(snapPath)
+		uploadPath = zstPath
 	}
 
 	size, sha, headerSHA, err := archive.FileHashes(uploadPath)
