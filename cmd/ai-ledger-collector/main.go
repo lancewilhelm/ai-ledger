@@ -30,6 +30,8 @@ func main() {
 		runDaemon(os.Args[2:])
 	case "status":
 		runStatus(os.Args[2:])
+	case "update":
+		runUpdate(os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	case "help", "-h", "--help":
@@ -49,6 +51,7 @@ Usage:
   ai-ledger-collector sync [--config <path>] [--dry-run]
   ai-ledger-collector daemon [--config <path>] [--interval 3m]
   ai-ledger-collector status [--config <path>]
+  ai-ledger-collector update [--check] [--force] [--version <tag>] [--no-restart]
   ai-ledger-collector version
 `)
 }
@@ -213,5 +216,48 @@ func runStatus(args []string) {
 	fmt.Printf("Discovered %d files (%.2f MB total):\n", len(files), float64(totalBytes)/(1024*1024))
 	for src, cnt := range counts {
 		fmt.Printf("  %-14s %4d files  %8.2f MB  (%d up-to-date)\n", src, cnt, float64(bytesBySource[src])/(1024*1024), syncedBySource[src])
+	}
+}
+
+func runUpdate(args []string) {
+	fs := flag.NewFlagSet("update", flag.ExitOnError)
+	checkOnly := fs.Bool("check", false, "check whether a newer release is available without installing")
+	force := fs.Bool("force", false, "reinstall even if already on the target version")
+	targetVer := fs.String("version", "latest", "target release tag (default: latest)")
+	repo := fs.String("repo", collector.DefaultReleaseRepo, "GitHub repository (owner/repo)")
+	noRestart := fs.Bool("no-restart", false, "skip restarting background service after updating")
+	_ = fs.Parse(args)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	res, err := collector.SelfUpdate(ctx, collector.UpdateOptions{
+		Repo:           *repo,
+		CurrentVersion: version,
+		TargetVersion:  *targetVer,
+		CheckOnly:      *checkOnly,
+		Force:          *force,
+		NoRestart:      *noRestart,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "update failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if res.AlreadyUpToDate {
+		fmt.Printf("ai-ledger-collector is already up to date (%s).\n", res.CurrentVersion)
+		return
+	}
+	if *checkOnly {
+		fmt.Printf("Update available: %s -> %s\nRun 'ai-ledger-collector update' to install.\n", res.CurrentVersion, res.LatestVersion)
+		return
+	}
+
+	fmt.Printf("Updated ai-ledger-collector: %s -> %s (%s)\n", res.CurrentVersion, res.LatestVersion, res.ExecutablePath)
+	if res.ChecksumVerified {
+		fmt.Println("Verified SHA-256 checksum against SHA256SUMS.txt")
+	}
+	if res.ServiceNote != "" {
+		fmt.Println(res.ServiceNote)
 	}
 }

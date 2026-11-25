@@ -23,6 +23,7 @@ RUN_SYNC=""
 VERSION="latest"
 FROM_SOURCE=0
 AUTO_YES=0
+UPDATE_ONLY=0
 UNINSTALL=0
 TMP_DIR=""
 
@@ -65,6 +66,7 @@ Options:
   --sync <yes|no>       Run an initial sync now without prompting
   --from-source         Build from source instead of downloading a GitHub Release binary
   --version <tag>       Release tag to download (default: latest)
+  --update              Update an existing binary atomically and restart its background service
   --yes, -y             Accept defaults for remaining prompts
   --uninstall           Stop and remove the background service (and optionally binary/config)
   -h, --help            Show this help message
@@ -81,6 +83,7 @@ while [ $# -gt 0 ]; do
     --sync)         RUN_SYNC="${2:?--sync requires yes or no}"; shift 2 ;;
     --version)      VERSION="${2:?--version requires a value}"; shift 2 ;;
     --from-source)  FROM_SOURCE=1; shift ;;
+    --update)       UPDATE_ONLY=1; shift ;;
     --yes|-y)       AUTO_YES=1; shift ;;
     --uninstall)    UNINSTALL=1; shift ;;
     -h|--help)      usage; exit 0 ;;
@@ -288,6 +291,61 @@ uninstall_collector() {
   exit 0
 }
 
+verify_sha256() {
+  local file="$1"
+  local asset="$2"
+  local sums_url="$3"
+  local tmp_sums="${file}.sha256"
+
+  if ! curl -fsSL "$sums_url" -o "$tmp_sums" 2>/dev/null || [ ! -s "$tmp_sums" ]; then
+    rm -f "$tmp_sums"
+    return 0
+  fi
+
+  local expected=""
+  expected="$(awk -v name="$asset" '{f=$2; sub(/^\*/, "", f); if (f == name) { print tolower($1); exit }}' "$tmp_sums")"
+  rm -f "$tmp_sums"
+  [ -n "$expected" ] || return 0
+
+  local actual=""
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$file" | awk '{print tolower($1)}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$file" | awk '{print tolower($1)}')"
+  else
+    return 0
+  fi
+
+  if [ "$actual" != "$expected" ]; then
+    die "SHA-256 mismatch for ${asset}: expected ${expected}, got ${actual}"
+  fi
+  ok "Verified SHA-256 checksum for ${asset}"
+}
+
+detect_existing_install_dir() {
+  if [ -n "$INSTALL_DIR" ]; then
+    echo "${INSTALL_DIR/#\~/$HOME}"
+    return 0
+  fi
+  local existing
+  existing="$(command -v ai-ledger-collector 2>/dev/null || true)"
+  if [ -n "$existing" ] && [ -f "$existing" ]; then
+    dirname "$existing"
+    return 0
+  fi
+  for p in "$HOME/.local/bin/ai-ledger-collector" "/usr/local/bin/ai-ledger-collector"; do
+    if [ -f "$p" ]; then
+      dirname "$p"
+      return 0
+    fi
+  done
+  if [ -w "/usr/local/bin" ]; then
+    echo "/usr/local/bin"
+  else
+    echo "$HOME/.local/bin"
+  fi
+}
+
 install_binary() {
   local tmp_dir="$1"
   local tmp_bin="${tmp_dir}/ai-ledger-collector"
@@ -299,7 +357,7 @@ install_binary() {
     if command -v go >/dev/null 2>&1; then
       info "Building ai-ledger-collector from local repository (${repo_root})..."
       local ver="dev"
-      ver="$(git -C "$repo_root" rev-parse --short=7 HEAD 2>/dev/null || echo dev)"
+      ver="$(git -C "$repo_root" describe --tags --exact-match 2>/dev/null || git -C "$repo_root" rev-parse --short=7 HEAD 2>/dev/null || echo dev)"
       (cd "$repo_root" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${ver}" -o "$tmp_bin" ./cmd/ai-ledger-collector)
       ok "Built ai-ledger-collector (${ver})"
     elif [ -x "$repo_root/bin/ai-ledger-collector" ] && [ "$FROM_SOURCE" = "0" ]; then
@@ -311,16 +369,18 @@ install_binary() {
   # 2. Try GitHub Release download if we don't have a binary yet and --from-source wasn't forced
   if [ ! -f "$tmp_bin" ] && [ "$FROM_SOURCE" = "0" ]; then
     local asset="ai-ledger-collector-${OS}-${ARCH}"
-    local url
+    local base_url
     if [ "$VERSION" = "latest" ]; then
-      url="https://github.com/${REPO}/releases/latest/download/${asset}"
+      base_url="https://github.com/${REPO}/releases/latest/download"
     else
-      url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
+      base_url="https://github.com/${REPO}/releases/download/${VERSION}"
     fi
+    local url="${base_url}/${asset}"
     info "Checking GitHub Releases for ${asset}..."
     if curl -fsSL "$url" -o "$tmp_bin" 2>/dev/null && [ -s "$tmp_bin" ]; then
       chmod +x "$tmp_bin"
       ok "Downloaded ${asset}"
+      verify_sha256 "$tmp_bin" "$asset" "${base_url}/SHA256SUMS.txt"
     else
       rm -f "$tmp_bin"
       warn "No pre-built release binary found at ${url}"
@@ -338,7 +398,7 @@ install_binary() {
     info "Cloning https://github.com/${REPO}.git and building from source..."
     git clone --depth 1 "https://github.com/${REPO}.git" "${tmp_dir}/src" >/dev/null 2>&1
     local ver
-    ver="$(git -C "${tmp_dir}/src" rev-parse --short=7 HEAD 2>/dev/null || echo dev)"
+    ver="$(git -C "${tmp_dir}/src" describe --tags --exact-match 2>/dev/null || git -C "${tmp_dir}/src" rev-parse --short=7 HEAD 2>/dev/null || echo dev)"
     (cd "${tmp_dir}/src" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${ver}" -o "$tmp_bin" ./cmd/ai-ledger-collector)
     ok "Built ai-ledger-collector (${ver}) from source"
   fi
@@ -347,34 +407,43 @@ install_binary() {
 
   # Choose install directory
   if [ -z "$INSTALL_DIR" ]; then
-    local default_dir="$HOME/.local/bin"
-    if [ -w "/usr/local/bin" ]; then
-      default_dir="/usr/local/bin"
-    fi
-    if [ "$AUTO_YES" = "1" ] || ! has_tty; then
-      INSTALL_DIR="$default_dir"
+    if [ "$UPDATE_ONLY" = "1" ]; then
+      INSTALL_DIR="$(detect_existing_install_dir)"
     else
-      local chosen=""
-      prompt_read "Install directory [${default_dir}]: " chosen 0
-      INSTALL_DIR="${chosen:-$default_dir}"
+      local default_dir="$HOME/.local/bin"
+      if [ -w "/usr/local/bin" ]; then
+        default_dir="/usr/local/bin"
+      fi
+      if [ "$AUTO_YES" = "1" ] || ! has_tty; then
+        INSTALL_DIR="$default_dir"
+      else
+        local chosen=""
+        prompt_read "Install directory [${default_dir}]: " chosen 0
+        INSTALL_DIR="${chosen:-$default_dir}"
+      fi
     fi
   fi
   INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
   BIN_PATH="${INSTALL_DIR}/ai-ledger-collector"
 
+  # Stage in target directory and atomically rename to avoid ETXTBSY on Linux while daemon runs
+  local staged="${BIN_PATH}.new.$$"
   if [ -d "$INSTALL_DIR" ] && [ -w "$INSTALL_DIR" ]; then
-    cp "$tmp_bin" "$BIN_PATH"
-    chmod 0755 "$BIN_PATH"
+    cp "$tmp_bin" "$staged"
+    chmod 0755 "$staged"
+    mv -f "$staged" "$BIN_PATH"
   elif mkdir -p "$INSTALL_DIR" 2>/dev/null && [ -w "$INSTALL_DIR" ]; then
-    cp "$tmp_bin" "$BIN_PATH"
-    chmod 0755 "$BIN_PATH"
+    cp "$tmp_bin" "$staged"
+    chmod 0755 "$staged"
+    mv -f "$staged" "$BIN_PATH"
   else
     info "Installing to ${BIN_PATH} (requires sudo)..."
     sudo mkdir -p "$INSTALL_DIR"
-    sudo cp "$tmp_bin" "$BIN_PATH"
-    sudo chmod 0755 "$BIN_PATH"
+    sudo cp "$tmp_bin" "$staged"
+    sudo chmod 0755 "$staged"
+    sudo mv -f "$staged" "$BIN_PATH"
   fi
-  ok "Installed binary to ${BIN_PATH}"
+  ok "Installed binary to ${BIN_PATH} ($("$BIN_PATH" version 2>/dev/null || echo unknown))"
 
   case ":$PATH:" in
     *":${INSTALL_DIR}:"*) ;;
@@ -384,6 +453,19 @@ install_binary() {
       warn "  export PATH=\"${INSTALL_DIR}:\$PATH\""
       ;;
   esac
+}
+
+restart_existing_service() {
+  if [ "$OS" = "linux" ]; then
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+      systemctl --user restart "$SERVICE_NAME"
+      ok "Restarted systemd user service (${SERVICE_NAME})"
+    fi
+  elif [ "$OS" = "darwin" ]; then
+    if [ -f "$HOME/Library/LaunchAgents/${LABEL}.plist" ]; then
+      ok "macOS LaunchAgent will use the updated binary automatically on its next scheduled run"
+    fi
+  fi
 }
 
 configure_collector() {
@@ -614,6 +696,11 @@ main() {
   trap 'rm -rf "${TMP_DIR:-}"' EXIT
 
   install_binary "$TMP_DIR"
+  if [ "$UPDATE_ONLY" = "1" ]; then
+    restart_existing_service
+    ok "Update complete."
+    exit 0
+  fi
   printf '\n'
   configure_collector
   maybe_offer_claude_retention

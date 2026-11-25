@@ -203,9 +203,17 @@ Non-interactive flags are also supported for automation (run `./scripts/install-
   --yes
 ```
 
-To stop and remove the background service later:
+To update or uninstall later:
 
 ```bash
+# Built-in self-updater (downloads latest GitHub Release, verifies SHA-256, restarts service)
+ai-ledger-collector update
+ai-ledger-collector update --check   # check without installing
+
+# Or update via the installer script (also supports building from a local clone)
+curl -fsSL https://raw.githubusercontent.com/lancewilhelm/ai-ledger/main/scripts/install-collector.sh | bash -s -- --update
+
+# Stop and remove the background service
 ./scripts/install-collector.sh --uninstall
 ```
 
@@ -329,6 +337,33 @@ journalctl --user -u ai-ledger-collector.service -f
 ```
 
 If you prefer a system-wide unit at `/etc/systemd/system/ai-ledger-collector.service`, add `User=<your-username>` under `[Service]` so the collector reads the correct home directory.
+
+---
+
+## Updating
+
+### Updating Collectors (macOS & Linux)
+
+Run the built-in self-updater on any machine where `ai-ledger-collector` is installed:
+
+```bash
+ai-ledger-collector update
+```
+
+This checks GitHub Releases for the latest version, verifies the binary against `SHA256SUMS.txt`, atomically replaces the executable in place, and restarts the Linux `systemd --user` service automatically if it is running (on macOS, `launchd` automatically uses the updated binary on its next scheduled sync). If you installed the binary into `/usr/local/bin`, prefix the command with `sudo`.
+
+Useful flags:
+- `ai-ledger-collector update --check` — check whether a newer release is available without modifying anything.
+- `ai-ledger-collector update --version v0.1.1` — pin to a specific release tag.
+- `curl -fsSL https://raw.githubusercontent.com/lancewilhelm/ai-ledger/main/scripts/install-collector.sh | bash -s -- --update` — update via the installer script (works even on older collector binaries that predate the `update` subcommand).
+
+### Updating the Server
+
+- **Docker Compose:** `docker compose pull && docker compose up -d`
+- **Unraid Web UI:** Go to **Docker → Check for Updates** and apply the update to `ai-ledger`.
+- **Standalone Binary:** Download the new release binary (or run `make all`) and restart `ai-ledger-server`.
+
+Any pending SQLite schema migrations run automatically inside transactions on startup after creating a `VACUUM INTO` backup.
 
 ---
 
