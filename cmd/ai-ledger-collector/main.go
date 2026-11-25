@@ -48,8 +48,8 @@ func printUsage() {
 
 Usage:
   ai-ledger-collector init --server <url> --token <device-token> [--config <path>]
-  ai-ledger-collector sync [--config <path>] [--dry-run]
-  ai-ledger-collector daemon [--config <path>] [--interval 3m]
+  ai-ledger-collector sync [--config <path>] [--dry-run] [-v|--verbose]
+  ai-ledger-collector daemon [--config <path>] [--interval 3m] [-v|--verbose]
   ai-ledger-collector status [--config <path>]
   ai-ledger-collector update [--check] [--force] [--version <tag>] [--no-restart]
   ai-ledger-collector version
@@ -95,6 +95,8 @@ func runSync(args []string) {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	cfgPath := fs.String("config", collector.DefaultConfigPath(), "config file path")
 	dryRun := fs.Bool("dry-run", false, "discover and report without uploading")
+	verbose := fs.Bool("verbose", false, "log each file as it syncs")
+	verboseShort := fs.Bool("v", false, "shorthand for --verbose")
 	_ = fs.Parse(args)
 
 	cfg := loadConfigOrExit(*cfgPath)
@@ -105,6 +107,7 @@ func runSync(args []string) {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	syncer := collector.NewSyncer(cfg, st, logger, *dryRun)
+	syncer.SetVerbose(*verbose || *verboseShort)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -132,6 +135,8 @@ func runDaemon(args []string) {
 	fs := flag.NewFlagSet("daemon", flag.ExitOnError)
 	cfgPath := fs.String("config", collector.DefaultConfigPath(), "config file path")
 	interval := fs.Duration("interval", 3*time.Minute, "sync interval")
+	verbose := fs.Bool("verbose", false, "log each file as it syncs")
+	verboseShort := fs.Bool("v", false, "shorthand for --verbose")
 	_ = fs.Parse(args)
 
 	cfg := loadConfigOrExit(*cfgPath)
@@ -142,6 +147,7 @@ func runDaemon(args []string) {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	syncer := collector.NewSyncer(cfg, st, logger, false)
+	syncer.SetVerbose(*verbose || *verboseShort)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

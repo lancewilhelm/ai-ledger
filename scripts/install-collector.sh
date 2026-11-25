@@ -721,7 +721,7 @@ main() {
 
   if [ "$do_sync" = "1" ]; then
     info "Running initial sync..."
-    if "$BIN_PATH" sync; then
+    if "$BIN_PATH" sync --verbose; then
       ok "Initial sync complete!"
     else
       warn "Initial sync encountered an error. Check the output above and your token/server URL."

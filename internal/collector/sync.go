@@ -35,6 +35,7 @@ type Syncer struct {
 	hostname string
 	log      *slog.Logger
 	dryRun   bool
+	verbose  bool
 }
 
 func NewSyncer(cfg Config, st *State, log *slog.Logger, dryRun bool) *Syncer {
@@ -54,6 +55,11 @@ func NewSyncer(cfg Config, st *State, log *slog.Logger, dryRun bool) *Syncer {
 	}
 }
 
+// SetVerbose enables per-file progress logging during sync passes.
+func (s *Syncer) SetVerbose(v bool) {
+	s.verbose = v
+}
+
 // SyncOnce discovers all configured log files and incrementally syncs any new data.
 func (s *Syncer) SyncOnce(ctx context.Context) (SyncStats, error) {
 	var stats SyncStats
@@ -65,29 +71,62 @@ func (s *Syncer) SyncOnce(ctx context.Context) (SyncStats, error) {
 		return stats, err
 	}
 	stats.Discovered = len(files)
+	if s.verbose {
+		s.log.Info("starting sync", "server", s.cfg.ServerURL, "discovered", len(files))
+	}
 
-	for _, f := range files {
+	dirtySinceSave := 0
+	lastSave := time.Now()
+	checkpoint := func() {
+		if s.dryRun || dirtySinceSave == 0 {
+			return
+		}
+		if err := s.state.Save(); err != nil {
+			s.log.Warn("save collector state failed", "err", err)
+			return
+		}
+		dirtySinceSave = 0
+		lastSave = time.Now()
+	}
+
+	for idx, f := range files {
 		if ctx.Err() != nil {
+			checkpoint()
 			return stats, ctx.Err()
 		}
+		progress := fmt.Sprintf("%d/%d", idx+1, len(files))
+		startFile := time.Now()
 		var uploaded int64
 		var didUpload bool
 		var syncErr error
 
 		if f.IsAppend {
-			uploaded, didUpload, syncErr = s.syncAppendFile(ctx, f)
+			uploaded, didUpload, syncErr = s.syncAppendFile(ctx, f, progress)
 		} else {
-			uploaded, didUpload, syncErr = s.syncSnapshotFile(ctx, f)
+			uploaded, didUpload, syncErr = s.syncSnapshotFile(ctx, f, progress)
 		}
 
 		if syncErr != nil {
 			stats.Errors++
-			s.log.Warn("sync file failed", "source", f.Source, "path", f.RelPath, "err", syncErr)
+			s.log.Warn("sync file failed", "progress", progress, "source", f.Source, "path", f.RelPath, "err", syncErr)
 			continue
 		}
 		if didUpload {
 			stats.UploadedFiles++
 			stats.UploadedBytes += uploaded
+			dirtySinceSave++
+			if s.verbose {
+				s.log.Info("uploaded",
+					"progress", progress,
+					"source", f.Source,
+					"path", f.RelPath,
+					"bytes", uploaded,
+					"elapsed", time.Since(startFile).Round(time.Millisecond),
+				)
+			}
+			if dirtySinceSave >= 25 || time.Since(lastSave) >= 30*time.Second {
+				checkpoint()
+			}
 		} else {
 			stats.Skipped++
 		}
@@ -101,7 +140,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) (SyncStats, error) {
 	return stats, nil
 }
 
-func (s *Syncer) syncAppendFile(ctx context.Context, f CandidateFile) (int64, bool, error) {
+func (s *Syncer) syncAppendFile(ctx context.Context, f CandidateFile, progress string) (int64, bool, error) {
 	cursor, hasCursor := s.state.Get(f.Source, f.RelPath)
 	if hasCursor && cursor.Size == f.Size && cursor.MtimeUnix == f.Mtime && cursor.Offset == f.Size {
 		return 0, false, nil
@@ -167,6 +206,17 @@ func (s *Syncer) syncAppendFile(ctx context.Context, f CandidateFile) (int64, bo
 				}
 			}
 		}
+	}
+
+	if s.verbose {
+		s.log.Info("uploading append file",
+			"progress", progress,
+			"source", f.Source,
+			"path", f.RelPath,
+			"from", startOffset,
+			"to", safeEnd,
+			"bytes", safeEnd-startOffset,
+		)
 	}
 
 	uploaded, lastResp, err := s.uploadChunks(ctx, f, startOffset, safeEnd, expectedHeader)
@@ -280,7 +330,7 @@ func (s *Syncer) uploadChunks(ctx context.Context, f CandidateFile, start, end i
 	return totalSent, lastResp, nil
 }
 
-func (s *Syncer) syncSnapshotFile(ctx context.Context, f CandidateFile) (int64, bool, error) {
+func (s *Syncer) syncSnapshotFile(ctx context.Context, f CandidateFile, progress string) (int64, bool, error) {
 	cursor, hasCursor := s.state.Get(f.Source, f.RelPath)
 	if hasCursor && cursor.MtimeUnix == f.Mtime && cursor.Size == f.Size {
 		return 0, false, nil
@@ -300,6 +350,9 @@ func (s *Syncer) syncSnapshotFile(ctx context.Context, f CandidateFile) (int64, 
 		if s.dryRun {
 			s.log.Info("[dry-run] would snapshot SQLite DB", "source", f.Source, "path", f.RelPath, "bytes", f.Size)
 			return f.Size, true, nil
+		}
+		if s.verbose {
+			s.log.Info("creating SQLite online snapshot", "progress", progress, "source", f.Source, "path", f.RelPath, "bytes", f.Size)
 		}
 		snapPath, err := CreateSQLiteSnapshot(ctx, f.AbsPath)
 		if err != nil {
@@ -338,6 +391,10 @@ func (s *Syncer) syncSnapshotFile(ctx context.Context, f CandidateFile) (int64, 
 			LastSyncAt:   time.Now().UTC(),
 		})
 		return 0, false, nil
+	}
+
+	if s.verbose {
+		s.log.Info("uploading snapshot", "progress", progress, "source", f.Source, "path", f.RelPath, "bytes", size)
 	}
 
 	fh, err := os.Open(uploadPath)
