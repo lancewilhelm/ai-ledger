@@ -74,6 +74,8 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+/* Reserve scrollbar space so the centered column does not shift between short and long pages. */
+html { scrollbar-gutter: stable; }
 body {
   margin: 0;
   background: var(--bg);
@@ -134,17 +136,20 @@ pre { margin: 0; }
 .live-pill { margin-left: auto; font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; border-radius: 99px; background: var(--ok-soft); color: var(--ok); }
 .status-dot.warn { background: var(--warn); }
 .nav-scrim { display: none; }
-.main { min-width: 0; display: flex; flex-direction: column; }
+/* The header background spans the full width, but its contents and the page
+   content share one centered column: --page-max wide, with --gutter inside. */
+.main { --page-max: 1480px; --gutter: 24px; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
-  padding: 12px 24px;
+  /* Percentages here resolve against .main's width, so this centers the row. */
+  padding: 12px max(var(--gutter), calc((100% - var(--page-max)) / 2 + var(--gutter)));
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }
 .page-title { font-size: 18px; margin: 0; font-weight: 650; letter-spacing: -0.01em; margin-right: auto; }
-.content { padding: 20px 24px 48px; max-width: 1480px; width: 100%; }
+.content { padding: 20px var(--gutter) 48px; max-width: var(--page-max); width: 100%; margin-inline: auto; }
 .icon-btn.mobile-only { display: none; }
 
 /* Filter bar */
@@ -463,8 +468,9 @@ pre { margin: 0; }
   .nav-open .sidebar { transform: none; box-shadow: var(--shadow); }
   .nav-open .nav-scrim { display: block; position: fixed; inset: 0; z-index: 25; background: rgba(0,0,0,.4); }
   .icon-btn.mobile-only { display: inline-grid; }
-  .topbar { padding: 10px 16px; }
-  .content { padding: 16px 16px 40px; }
+  .main { --gutter: 16px; }
+  .topbar { padding-block: 10px; }
+  .content { padding-top: 16px; padding-bottom: 40px; }
   .kpis { grid-template-columns: repeat(2, 1fr); }
   .kpis .kpi:first-child { grid-column: span 2; }
   .meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
