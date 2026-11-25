@@ -178,7 +178,38 @@ docker exec ai-ledger ai-ledger-server token revoke --id macbook-pro --data /dat
 
 ---
 
-## Collector Setup on macOS
+## Collector Setup (macOS & Linux)
+
+### Quick Interactive Setup (Recommended)
+
+Run the guided setup script on any macOS or Linux machine. It detects your OS and CPU architecture, installs `ai-ledger-collector` (building from a local clone or downloading from GitHub Releases), checks server connectivity, prompts for your device token, optionally runs an initial sync, and lets you choose whether to install an automatic background service (`launchd` on macOS, `systemd --user` or `crontab` on Linux):
+
+```bash
+# Run directly on any macOS or Linux machine
+curl -fsSL https://raw.githubusercontent.com/lancewilhelm/ai-ledger/main/scripts/install-collector.sh | bash
+
+# Or from a local clone of this repository
+./scripts/install-collector.sh
+```
+
+Non-interactive flags are also supported for automation (run `./scripts/install-collector.sh --help` for all options):
+
+```bash
+./scripts/install-collector.sh \
+  --server http://<server-host>:8484 \
+  --token ail_<your-device-token> \
+  --service yes \
+  --sync yes \
+  --yes
+```
+
+To stop and remove the background service later:
+
+```bash
+./scripts/install-collector.sh --uninstall
+```
+
+### Manual Setup: macOS
 
 ### 1. Install `ai-ledger-collector`
 
@@ -245,7 +276,7 @@ launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.ai-ledger.collector.
 
 ---
 
-## Collector Setup on Linux
+### Manual Setup: Linux
 
 ### 1. Install `ai-ledger-collector`
 
