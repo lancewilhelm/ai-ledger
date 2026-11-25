@@ -14,6 +14,8 @@ It collects local session logs from your machines (without intercepting or proxy
 
 ![AI Ledger Session Inspector](docs/images/session-inspector.png)
 
+![AI Ledger Pricing Settings](docs/images/pricing-settings.png)
+
 ## Lightweight Single-Binary Architecture
 
 Both `ai-ledger-server` and `ai-ledger-collector` compile into standalone `CGO_ENABLED=0` static Go binaries with zero runtime dependencies. The server embeds the React + Vite web dashboard, SQLite migrations, and IANA timezone data inside one executable and ships as a minimal multi-arch `FROM scratch` Docker image (`linux/amd64` and `linux/arm64`).
