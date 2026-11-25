@@ -20,9 +20,27 @@ type FileCursor struct {
 
 // State persists local cursors across collector runs.
 type State struct {
-	mu    sync.Mutex
-	path  string
-	Files map[string]FileCursor `json:"files"`
+	mu        sync.Mutex
+	path      string
+	ServerURL string                `json:"server_url,omitempty"`
+	Files     map[string]FileCursor `json:"files"`
+}
+
+// ResetIfServerMismatch clears cached cursors when switching to a different server URL
+// (or migrating from an older state file that did not record server_url).
+func (s *State) ResetIfServerMismatch(serverURL string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ServerURL == serverURL {
+		return false
+	}
+	hadFiles := len(s.Files) > 0
+	s.ServerURL = serverURL
+	if hadFiles {
+		s.Files = make(map[string]FileCursor)
+		return true
+	}
+	return false
 }
 
 // LoadState reads the local state file or initializes an empty one.

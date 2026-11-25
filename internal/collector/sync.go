@@ -57,6 +57,9 @@ func NewSyncer(cfg Config, st *State, log *slog.Logger, dryRun bool) *Syncer {
 // SyncOnce discovers all configured log files and incrementally syncs any new data.
 func (s *Syncer) SyncOnce(ctx context.Context) (SyncStats, error) {
 	var stats SyncStats
+	if s.state != nil && s.state.ResetIfServerMismatch(s.cfg.ServerURL) {
+		s.log.Info("collector server changed; resetting local sync cursors to reconcile with server", "server", s.cfg.ServerURL)
+	}
 	files, err := Discover(s.cfg)
 	if err != nil {
 		return stats, err

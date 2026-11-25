@@ -181,8 +181,8 @@ func (s *SQLiteStore) ListDevices(ctx context.Context) ([]protocol.DeviceInfo, e
 			COALESCE((SELECT COUNT(*) FROM raw_files rf WHERE rf.device_id = d.id), 0) AS file_count,
 			COALESCE((SELECT SUM(byte_size) FROM raw_files rf WHERE rf.device_id = d.id), 0) AS archive_bytes,
 			COALESCE((SELECT COUNT(*) FROM sessions se WHERE se.device_id = d.id), 0) AS session_count,
-			COALESCE((SELECT SUM(input_tokens + cached_input_tokens + cache_write_5m_tokens + cache_write_1h_tokens + output_tokens) FROM sessions se WHERE se.device_id = d.id), 0) AS total_tokens,
-			COALESCE((SELECT SUM(estimated_cost_usd) FROM sessions se WHERE se.device_id = d.id), 0) AS estimated_cost
+			COALESCE((SELECT SUM(u.input_tokens + u.cached_input_tokens + u.cache_write_5m_tokens + u.cache_write_1h_tokens + u.output_tokens) FROM usage_events u WHERE u.device_id = d.id), 0) AS total_tokens,
+			COALESCE((SELECT SUM(u.estimated_cost_usd) FROM usage_events u WHERE u.device_id = d.id), 0) AS estimated_cost
 		FROM devices d
 		ORDER BY d.created_at ASC
 	`)
@@ -414,6 +414,17 @@ func (s *SQLiteStore) ReplaceFileParsedData(ctx context.Context, fileID string, 
 	// Cascading delete removes old messages, tool_calls, usage_events, rate_limit_snapshots
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE source_file_id = ?`, fileID); err != nil {
 		return fmt.Errorf("clear sessions: %w", err)
+	}
+
+	// Also clear any existing session rows with the same deterministic ID (e.g. if a log moved
+	// from .jsonl to .jsonl.zst) so prior usage_events / messages never accumulate as duplicates.
+	for _, sess := range bundle.Sessions {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM messages_fts WHERE session_id = ?`, sess.ID); err != nil {
+			return fmt.Errorf("clear fts by session %s: %w", sess.ID, err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sess.ID); err != nil {
+			return fmt.Errorf("clear session %s: %w", sess.ID, err)
+		}
 	}
 
 	// Upsert T3 thread links if any
@@ -1271,7 +1282,7 @@ func (s *SQLiteStore) SearchMessages(ctx context.Context, f QueryFilter, limit, 
 		SELECT
 			m.id, m.session_id, s.title, s.harness, s.project_name, d.name,
 			COALESCE(NULLIF(m.model, ''), s.model_primary), m.role,
-			snippet(messages_fts, 2, '<mark>', '</mark>', '…', 24),
+			snippet(messages_fts, -1, '<mark>', '</mark>', '…', 24),
 			m.timestamp
 		FROM messages_fts
 		JOIN messages m ON m.id = messages_fts.message_id

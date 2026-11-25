@@ -302,6 +302,7 @@ export default function DevicesPage() {
           title={
             <>
               Devices <span className="count">{devices.length}</span>
+              <span className="muted small" style={{ fontWeight: 400 }}>· all-time totals</span>
             </>
           }
         >

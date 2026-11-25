@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
@@ -249,7 +250,56 @@ func TestParseT3AndHermesSQLite(t *testing.T) {
 	if len(hb.Sessions) != 1 || len(hb.Messages) != 2 || len(hb.Usage) != 1 {
 		t.Fatalf("unexpected hermes bundle: sessions=%d msgs=%d usage=%d", len(hb.Sessions), len(hb.Messages), len(hb.Usage))
 	}
-	if hb.Sessions[0].Title != "Hermes Test" || hb.Usage[0].EstimatedCostUSD != 0.02 {
+	if hb.Sessions[0].Title != "Hermes Test" || hb.Usage[0].EstimatedCostUSD != 0.02 || hb.Sessions[0].EstimatedCostUSD != 0.02 {
 		t.Errorf("unexpected hermes values: %+v %+v", hb.Sessions[0], hb.Usage[0])
+	}
+}
+
+func TestParseCodexSubagentDistinctSessionID(t *testing.T) {
+	dir := t.TempDir()
+	parentPath := filepath.Join(dir, "rollout-parent.jsonl")
+	childPath := filepath.Join(dir, "rollout-child.jsonl")
+
+	parentData := strings.Join([]string{
+		`{"timestamp":"2026-11-16T20:10:04Z","type":"session_meta","payload":{"id":"parent-uuid","session_id":"parent-uuid","cwd":"/Users/dev/app","source":"vscode"}}`,
+		`{"timestamp":"2026-11-16T20:10:05Z","type":"turn_context","payload":{"model":"gpt-5.4-codex"}}`,
+		`{"timestamp":"2026-11-16T20:10:06Z","type":"token_usage_record","payload":{"session_id":"parent-uuid","response_id":"resp_p1","model":"gpt-5.4-codex","usage":{"input_tokens":2000,"cached_input_tokens":1000,"output_tokens":300}}}`,
+	}, "\n") + "\n"
+
+	childData := strings.Join([]string{
+		`{"timestamp":"2026-11-16T20:10:44Z","type":"session_meta","payload":{"id":"child-uuid","session_id":"parent-uuid","parent_thread_id":"parent-uuid","cwd":"/Users/dev/app","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent-uuid","depth":1}}}}}`,
+		`{"timestamp":"2026-11-16T20:10:45Z","type":"turn_context","payload":{"model":"gpt-5.4-codex"}}`,
+		`{"timestamp":"2026-11-16T20:10:46Z","type":"token_usage_record","payload":{"session_id":"parent-uuid","response_id":"resp_c1","model":"gpt-5.4-codex","usage":{"input_tokens":1000,"cached_input_tokens":500,"output_tokens":100}}}`,
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(parentPath, []byte(parentData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(childPath, []byte(childData), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := parser.NewRegistry(pricing.NewCalculator())
+	pb, err := reg.Parse(context.Background(), parser.FileInput{
+		FileID: "fp", DeviceID: "dev1", Source: protocol.SourceCodex, RelPath: "rollout-parent.jsonl", AbsPath: parentPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb, err := reg.Parse(context.Background(), parser.FileInput{
+		FileID: "fc", DeviceID: "dev1", Source: protocol.SourceCodex, RelPath: "rollout-child.jsonl", AbsPath: childPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(pb.Sessions) != 1 || len(cb.Sessions) != 1 {
+		t.Fatalf("expected 1 session each, got parent=%d child=%d", len(pb.Sessions), len(cb.Sessions))
+	}
+	if pb.Sessions[0].ID == cb.Sessions[0].ID {
+		t.Fatalf("subagent collided with parent session ID %s", pb.Sessions[0].ID)
+	}
+	if cb.Sessions[0].NativeID != "child-uuid" || !cb.Sessions[0].IsSidechain || cb.Sessions[0].ParentSessionID != "parent-uuid" {
+		t.Fatalf("unexpected subagent metadata: %+v", cb.Sessions[0])
 	}
 }

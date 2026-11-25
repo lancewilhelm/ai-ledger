@@ -256,6 +256,12 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 
 	// Read session_model_usage for exact per-model usage breakdown
 	sessionsWithModelUsage := make(map[string]bool)
+	type usageRollup struct {
+		inT, crT, cwT, outT, reasT int64
+		cost                       float64
+		calls                      int
+	}
+	usageBySession := make(map[string]*usageRollup)
 	uRows, err := db.QueryContext(ctx, `
 		SELECT
 			session_id, model, COALESCE(task, ''),
@@ -270,10 +276,10 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 		idxCounter := 0
 		for uRows.Next() {
 			var (
-				hSID, model, task             string
-				calls                         int
-				inT, outT, crT, cwT, reasT    int64
-				estC, actC, seenUnix          float64
+				hSID, model, task          string
+				calls                      int
+				inT, outT, crT, cwT, reasT int64
+				estC, actC, seenUnix       float64
 			)
 			if uRows.Scan(&hSID, &model, &task, &calls, &inT, &outT, &crT, &cwT, &reasT, &estC, &actC, &seenUnix) != nil {
 				continue
@@ -298,6 +304,19 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 			if cost == 0 {
 				cost = r.Pricing.EstimateCost(model, inT, crT, cwT, 0, outT)
 			}
+			ru := usageBySession[hSID]
+			if ru == nil {
+				ru = &usageRollup{}
+				usageBySession[hSID] = ru
+			}
+			ru.inT += inT
+			ru.crT += crT
+			ru.cwT += cwT
+			ru.outT += outT
+			ru.reasT += reasT
+			ru.cost += cost
+			ru.calls += calls
+
 			idxCounter++
 			bundle.Usage = append(bundle.Usage, protocol.UsageEventRecord{
 				ID:                 stableID("use", sess.ID, model, task, fmt.Sprintf("%d", idxCounter)),
@@ -315,6 +334,21 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 			})
 		}
 		uRows.Close()
+
+		// Reconcile session rollups with summed session_model_usage so Sessions, Overview, and Devices agree.
+		for hSID, ru := range usageBySession {
+			sIdx := sessionMap[hSID]
+			sess := &bundle.Sessions[sIdx]
+			sess.InputTokens = ru.inT
+			sess.CachedInputTokens = ru.crT
+			sess.CacheWrite5mTokens = ru.cwT
+			sess.OutputTokens = ru.outT
+			sess.ReasoningTokens = ru.reasT
+			sess.EstimatedCostUSD = ru.cost
+			if ru.calls > 0 {
+				sess.APICallCount = ru.calls
+			}
+		}
 	}
 
 	// Fallback: if a Hermes session has token totals on sessions table but no session_model_usage rows

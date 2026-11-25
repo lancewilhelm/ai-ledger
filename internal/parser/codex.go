@@ -36,16 +36,18 @@ func (r *Registry) parseCodex(ctx context.Context, in FileInput) (*store.ParsedF
 	defer rc.Close()
 
 	var (
-		nativeID     string
-		cwd          string
-		gitBranch    string
-		originator   string
-		currentModel string
-		currentEff   string
-		startedAt    time.Time
-		endedAt      time.Time
-		firstTitle   string
-		contextWin   int64
+		nativeID        string
+		parentSessionID string
+		isSidechain     bool
+		cwd             string
+		gitBranch       string
+		originator      string
+		currentModel    string
+		currentEff      string
+		startedAt       time.Time
+		endedAt         time.Time
+		firstTitle      string
+		contextWin      int64
 	)
 
 	modelCounts := make(map[string]int)
@@ -99,20 +101,47 @@ func (r *Registry) parseCodex(ctx context.Context, in FileInput) (*store.ParsedF
 		switch cl.Type {
 		case "session_meta":
 			var meta struct {
-				ID         string `json:"id"`
-				SessionID  string `json:"session_id"`
-				Timestamp  string `json:"timestamp"`
-				CWD        string `json:"cwd"`
-				Originator string `json:"originator"`
-				Git        struct {
+				ID             string          `json:"id"`
+				SessionID      string          `json:"session_id"`
+				ParentThreadID string          `json:"parent_thread_id"`
+				Source         json.RawMessage `json:"source"`
+				Timestamp      string          `json:"timestamp"`
+				CWD            string          `json:"cwd"`
+				Originator     string          `json:"originator"`
+				Git            struct {
 					Branch string `json:"branch"`
 				} `json:"git"`
 			}
 			if json.Unmarshal(cl.Payload, &meta) == nil {
-				if meta.SessionID != "" {
-					nativeID = meta.SessionID
-				} else if meta.ID != "" {
+				// Prefer meta.ID (this rollout thread's own unique ID).
+				// For Codex subagents, meta.SessionID holds the parent thread's ID.
+				if meta.ID != "" {
 					nativeID = meta.ID
+				} else if meta.SessionID != "" {
+					nativeID = meta.SessionID
+				}
+				if meta.ParentThreadID != "" {
+					parentSessionID = meta.ParentThreadID
+					isSidechain = true
+				}
+				if len(meta.Source) > 0 {
+					var srcObj struct {
+						Subagent *struct {
+							ThreadSpawn *struct {
+								ParentThreadID string `json:"parent_thread_id"`
+							} `json:"thread_spawn"`
+						} `json:"subagent"`
+					}
+					if json.Unmarshal(meta.Source, &srcObj) == nil && srcObj.Subagent != nil {
+						isSidechain = true
+						if srcObj.Subagent.ThreadSpawn != nil && srcObj.Subagent.ThreadSpawn.ParentThreadID != "" {
+							parentSessionID = srcObj.Subagent.ThreadSpawn.ParentThreadID
+						}
+					}
+				}
+				if parentSessionID == "" && meta.SessionID != "" && meta.ID != "" && meta.SessionID != meta.ID {
+					parentSessionID = meta.SessionID
+					isSidechain = true
 				}
 				if meta.CWD != "" {
 					cwd = meta.CWD
@@ -479,6 +508,8 @@ func (r *Registry) parseCodex(ctx context.Context, in FileInput) (*store.ParsedF
 		GitBranch:          gitBranch,
 		Title:              title,
 		ModelPrimary:       mostFrequentModel(modelCounts),
+		ParentSessionID:    parentSessionID,
+		IsSidechain:        isSidechain,
 		Originator:         originator,
 		StartedAt:          startedAt,
 		EndedAt:            endedPtr,
