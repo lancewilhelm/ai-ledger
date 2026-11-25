@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lancewilhelm/ai-ledger/internal/archive"
 	"github.com/lancewilhelm/ai-ledger/internal/collector"
@@ -34,6 +36,7 @@ func TestEndToEndCollectorIngestAndAPI(t *testing.T) {
 	calc := pricing.NewCalculator()
 	srv := server.New(server.Config{
 		SyncParseDefault: true,
+		EventDebounce:    25 * time.Millisecond,
 	}, st, arch, calc)
 	defer srv.Close()
 
@@ -302,6 +305,46 @@ func TestEndToEndCollectorIngestAndAPI(t *testing.T) {
 	ovReverted := getJSON[protocol.OverviewResponse](t, ts.URL+"/api/overview")
 	if ovReverted.Totals.EstimatedCostUSD != origCost {
 		t.Errorf("expected cost to revert to %f, got %f", origCost, ovReverted.Totals.EstimatedCostUSD)
+	}
+
+	// Verify /api/events SSE stream emits live update when server data changes
+	sseCtx, sseCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer sseCancel()
+	sseReq, _ := http.NewRequestWithContext(sseCtx, http.MethodGet, ts.URL+"/api/events", nil)
+	sseResp, err := http.DefaultClient.Do(sseReq)
+	if err != nil {
+		t.Fatalf("GET /api/events: %v", err)
+	}
+	defer sseResp.Body.Close()
+	if ct := sseResp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("expected text/event-stream content-type, got %q", ct)
+	}
+	reader := bufio.NewReader(sseResp.Body)
+	// Read initial ": connected" comment line
+	if line, err := reader.ReadString('\n'); err != nil || !strings.HasPrefix(line, ": connected") {
+		t.Fatalf("expected SSE connected comment, got %q (err=%v)", line, err)
+	}
+	// Trigger a recalculate update and verify an SSE update event arrives
+	recalcReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/admin/pricing/recalculate", strings.NewReader("{}"))
+	recalcResp, err := http.DefaultClient.Do(recalcReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recalcResp.Body.Close()
+
+	gotEvent := false
+	for i := 0; i < 6; i++ {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if strings.HasPrefix(line, "event: update") {
+			gotEvent = true
+			break
+		}
+	}
+	if !gotEvent {
+		t.Fatalf("expected SSE 'event: update' after server change")
 	}
 
 	_ = dev

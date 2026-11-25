@@ -4,17 +4,14 @@ import { useApp } from '../context'
 import { useAsync } from '../hooks'
 import { fmtBytes, fmtCompact, fmtDate, fmtInt, fmtPct, fmtRelative, fmtUSD } from '../format'
 import type { BreakdownRow, OverviewResponse, TimeseriesResponse } from '../types'
-import { Card, Empty, ErrorBox, Icon, Segmented, Spinner, Tabs, assignSeriesColors, colorFor, type ColorMode, type IconName } from '../components/ui'
+import { Card, Empty, ErrorBox, Icon, Segmented, Spinner, Tabs, assignSeriesColors, colorFor, type ColorMode } from '../components/ui'
 import TimeseriesChart, { type Bucket, type GroupBy, type Metric } from '../components/TimeseriesChart'
 import Onboarding from '../components/Onboarding'
 
-function Kpi({ icon, label, value, sub, children }: { icon: IconName; label: string; value: string; sub?: React.ReactNode; children?: React.ReactNode }) {
+function Kpi({ label, value, sub, children }: { label: string; value: string; sub?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="kpi">
-      <div className="kpi-label">
-        <Icon name={icon} size={14} />
-        {label}
-      </div>
+      <div className="kpi-label">{label}</div>
       <div className="kpi-value">{value}</div>
       {sub && <div className="kpi-sub">{sub}</div>}
       {children}
@@ -182,22 +179,20 @@ export default function OverviewPage() {
       {noData && !filtered && <Onboarding onAddDevice={() => navigate('devices')} />}
 
       <div className="kpis">
-        <Kpi icon="activity" label="Total tokens" value={fmtCompact(t.total_tokens)} sub={<span title={fmtInt(t.total_tokens)}>{fmtInt(t.total_tokens)} tokens</span>}>
+        <Kpi label="Total tokens" value={fmtCompact(t.total_tokens)} sub={<span title={fmtInt(t.total_tokens)}>{fmtInt(t.total_tokens)} tokens</span>}>
           <TokenBar t={t} />
         </Kpi>
-        <Kpi icon="percent" label="Cache hit rate" value={fmtPct(t.cache_hit_rate)} sub={`${fmtCompact(t.cached_input_tokens)} cached input tokens`}>
+        <Kpi label="Cache hit rate" value={fmtPct(t.cache_hit_rate)} sub={`${fmtCompact(t.cached_input_tokens)} cached input tokens`}>
           <div className="meter" aria-hidden>
             <span style={{ width: `${Math.min(100, t.cache_hit_rate * 100)}%` }} />
           </div>
         </Kpi>
         <Kpi
-          icon="coins"
           label="Estimated cost"
           value={fmtUSD(t.estimated_cost_usd, 2)}
           sub={t.reported_cost_usd > 0 ? <>Reported: <b>{fmtUSD(t.reported_cost_usd, 2)}</b></> : 'From token pricing'}
         />
         <Kpi
-          icon="list"
           label="Sessions"
           value={fmtInt(t.session_count)}
           sub={
@@ -207,7 +202,6 @@ export default function OverviewPage() {
           }
         />
         <Kpi
-          icon="database"
           label="Raw archive"
           value={fmtBytes(a.total_bytes)}
           sub={

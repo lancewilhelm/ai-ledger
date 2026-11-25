@@ -473,6 +473,7 @@ Schema changes are managed by versioned SQL files in `internal/store/migrations/
 | `GET /api/files` | Archived raw files and parse status |
 | `GET /api/filters` | Distinct harnesses, models, devices, and projects |
 | `GET /api/pricing` | Active pricing sources, observed model rates, full catalog, and manual overrides |
+| `GET /api/events` | Server-Sent Events stream pushing coalesced live updates to open dashboards |
 | `GET /api/export/training` | Streaming JSONL export (`redact=true`, `thinking=true`, `tools=true`) |
 | `POST /api/admin/reparse` | Re-parse one or all archived files |
 | `POST /api/admin/devices` | Create a new device token |

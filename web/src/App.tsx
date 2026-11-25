@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { Ctx, type AppCtx, type View } from './context'
 import { fmtDate, fmtRelative } from './format'
@@ -78,11 +78,44 @@ export default function App() {
   const [theme, setTheme] = usePersistentState<'dark' | 'light'>('ail-theme', defaultTheme())
   const [toasts, setToasts] = useState<Toast[]>([])
   const [navOpen, setNavOpen] = useState(false)
+  const [liveState, setLiveState] = useState<'connecting' | 'live' | 'offline'>('connecting')
+  const pendingRefreshRef = useRef(false)
   const [, setClockTick] = useState(0)
 
   useEffect(() => {
     const id = setInterval(() => setClockTick((t) => t + 1), 30_000)
     return () => clearInterval(id)
+  }, [])
+
+  // Subscribe to Server-Sent Events so collector syncs refresh the dashboard automatically.
+  useEffect(() => {
+    if (typeof EventSource === 'undefined') {
+      setLiveState('offline')
+      return
+    }
+    const es = new EventSource('/api/events')
+    es.onopen = () => setLiveState('live')
+    es.onerror = () => setLiveState('offline')
+    const onUpdate = () => {
+      if (document.visibilityState === 'visible') {
+        setRefreshKey((k) => k + 1)
+      } else {
+        pendingRefreshRef.current = true
+      }
+    }
+    es.addEventListener('update', onUpdate)
+    const onVis = () => {
+      if (document.visibilityState === 'visible' && pendingRefreshRef.current) {
+        pendingRefreshRef.current = false
+        setRefreshKey((k) => k + 1)
+      }
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      es.removeEventListener('update', onUpdate)
+      es.close()
+      document.removeEventListener('visibilitychange', onVis)
+    }
   }, [])
 
   useEffect(() => {
@@ -172,8 +205,9 @@ export default function App() {
               title={opts.data?.last_updated_at ? `Last data update: ${fmtDate(opts.data.last_updated_at)}` : 'Waiting for first sync'}
             >
               <div className="sync-meta-row">
-                <span className={`status-dot ${opts.data?.last_updated_at ? 'ok' : ''}`} />
+                <span className={`status-dot ${liveState === 'live' ? 'ok' : liveState === 'offline' ? 'warn' : ''}`} />
                 <span className="muted small">Last updated</span>
+                {liveState === 'live' && <span className="live-pill">Live</span>}
               </div>
               <div className="sync-meta-val">
                 {opts.data?.last_updated_at ? fmtRelative(opts.data.last_updated_at) : '—'}

@@ -29,7 +29,8 @@ type Config struct {
 	MaxUploadBytes   int64  // default 2 GiB (large SQLite snapshots!)
 	WebFS            fs.FS  // embedded dashboard static files
 	Logger           *slog.Logger
-	SyncParseDefault bool // useful for deterministic tests
+	SyncParseDefault bool          // useful for deterministic tests
+	EventDebounce    time.Duration // SSE broadcast coalesce window (default 1.5s)
 }
 
 // Server serves both the collector ingest API and the dashboard/analytics API.
@@ -41,6 +42,7 @@ type Server struct {
 	pricing *pricing.Calculator
 	log     *slog.Logger
 	mux     *http.ServeMux
+	events  *eventHub
 
 	// Async parse worker with deduplicated pending queue
 	parseMu      sync.Mutex
@@ -67,6 +69,7 @@ func New(cfg Config, st store.Store, arch *archive.Store, calc *pricing.Calculat
 		pricing:      calc,
 		log:          cfg.Logger,
 		mux:          http.NewServeMux(),
+		events:       newEventHub(cfg.EventDebounce),
 		parsePending: make(map[string]struct{}),
 		parseCh:      make(chan string, 4096),
 		stopCh:       make(chan struct{}),
@@ -115,10 +118,13 @@ func (s *Server) RecalculateUsageCosts(ctx context.Context) (updatedEvents int64
 	})
 }
 
-// Close gracefully stops the background parser worker.
+// Close gracefully stops the background parser worker and closes SSE streams.
 func (s *Server) Close() {
 	s.stopOnce.Do(func() {
 		close(s.stopCh)
+		if s.events != nil {
+			s.events.Close()
+		}
 	})
 	s.workerWg.Wait()
 }
@@ -149,6 +155,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/files", s.handleListFiles)
 	s.mux.HandleFunc("GET /api/filters", s.handleFilters)
 	s.mux.HandleFunc("GET /api/pricing", s.handleGetPricing)
+	s.mux.HandleFunc("GET /api/events", s.handleEvents)
 	s.mux.HandleFunc("GET /api/export/training", s.handleExportTraining)
 
 	// Admin API
@@ -223,7 +230,13 @@ func (s *Server) ParseFileNow(ctx context.Context, fileID string) error {
 		_ = s.store.MarkRawFileParseError(ctx, fileID, err.Error())
 		return err
 	}
-	return s.store.ReplaceFileParsedData(ctx, fileID, bundle)
+	if err := s.store.ReplaceFileParsedData(ctx, fileID, bundle); err != nil {
+		return err
+	}
+	if s.events != nil {
+		s.events.Notify("ingest")
+	}
+	return nil
 }
 
 // ReparseAll re-parses every archived file in order (rates & T3 metadata first, then native logs).
@@ -365,6 +378,16 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Flush() {
+	if fl, ok := r.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 func (s *Server) spaHandler(webFS fs.FS) http.Handler {

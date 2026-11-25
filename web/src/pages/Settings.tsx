@@ -405,13 +405,7 @@ export default function SettingsPage() {
         <Spinner label="Loading pricing configuration…" />
       ) : data && (
         <>
-          <Card
-            title={
-              <>
-                <Icon name="coins" size={15} /> Cost calculation & rate precedence
-              </>
-            }
-          >
+          <Card title="Cost calculation & rate precedence">
             <p className="muted" style={{ marginTop: 0, marginBottom: 12 }}>
               Estimated USD costs are calculated from each API call&apos;s token counts multiplied by the highest-priority matching rate below. Model names match exact keys first, then stripped provider prefixes (for example <code>anthropic/</code>), stripped effort suffixes (for example <code>-high</code>), and longest version prefix.
             </p>

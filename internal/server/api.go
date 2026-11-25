@@ -397,6 +397,9 @@ func (s *Server) handleAdminCreateDevice(w http.ResponseWriter, r *http.Request)
 		"device": dev,
 		"token":  plain,
 	})
+	if s.events != nil {
+		s.events.Notify("device")
+	}
 }
 
 func (s *Server) handleAdminRevokeDevice(w http.ResponseWriter, r *http.Request) {
@@ -408,6 +411,9 @@ func (s *Server) handleAdminRevokeDevice(w http.ResponseWriter, r *http.Request)
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.events != nil {
+		s.events.Notify("device")
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "revoked"})
 }
@@ -592,6 +598,9 @@ func (s *Server) handleAdminUpsertPricingOverride(w http.ResponseWriter, r *http
 		}
 	}
 
+	if s.events != nil {
+		s.events.Notify("pricing")
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"override":         saved,
 		"recalculated":     shouldRecalc,
@@ -636,6 +645,9 @@ func (s *Server) handleAdminDeletePricingOverride(w http.ResponseWriter, r *http
 		}
 	}
 
+	if s.events != nil {
+		s.events.Notify("pricing")
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":           "deleted",
 		"model":            model,
@@ -650,6 +662,9 @@ func (s *Server) handleAdminRecalculatePricing(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if s.events != nil {
+		s.events.Notify("pricing")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"updated_events":   updatedEvents,
