@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import { api, filterParams } from '../api'
 import { useApp } from '../context'
 import { useAsync, useDebounced } from '../hooks'
-import { fmtCompact, fmtDate, fmtInt, fmtUSD, shortPath } from '../format'
+import { fmtCompact, fmtDate, fmtInt, fmtRelative, fmtUSD, shortPath } from '../format'
 import type { SessionSummary } from '../types'
 import { Card, Empty, ErrorBox, HarnessBadge, Icon, Pager, Spinner, colorFor } from '../components/ui'
 import Onboarding from '../components/Onboarding'
 
-type Sort = 'started_at' | 'cost' | 'tokens' | 'messages'
+type Sort = 'ended_at' | 'started_at' | 'cost' | 'tokens' | 'messages'
 const LIMIT = 50
 
 interface ListResp {
@@ -27,7 +27,7 @@ function SortTh({ label, k, sort, order, onSort, className = '' }: { label: stri
 
 export default function SessionsPage() {
   const { filters, refreshKey, openSession, navigate } = useApp()
-  const [sort, setSort] = useState<Sort>('started_at')
+  const [sort, setSort] = useState<Sort>('ended_at')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
   const [offset, setOffset] = useState(0)
   const [q, setQ] = useState('')
@@ -86,7 +86,8 @@ export default function SessionsPage() {
                   <th className="hide-sm">Harness</th>
                   <th className="hide-md">Model</th>
                   <th className="hide-md">Device</th>
-                  <SortTh label="Started" k="started_at" sort={sort} order={order} onSort={onSort} />
+                  <SortTh label="Last updated" k="ended_at" sort={sort} order={order} onSort={onSort} />
+                  <SortTh label="Started" k="started_at" sort={sort} order={order} onSort={onSort} className="hide-md" />
                   <SortTh label="Msgs" k="messages" sort={sort} order={order} onSort={onSort} className="num hide-sm" />
                   <SortTh label="Tokens" k="tokens" sort={sort} order={order} onSort={onSort} className="num" />
                   <SortTh label="Cost" k="cost" sort={sort} order={order} onSort={onSort} className="num" />
@@ -119,7 +120,11 @@ export default function SessionsPage() {
                       )}
                     </td>
                     <td className="hide-md ellipsis small">{s.device_name || '—'}</td>
-                    <td className="nowrap small">{fmtDate(s.started_at)}</td>
+                    <td className="nowrap small" title={fmtDate(s.ended_at || s.started_at)}>
+                      <div>{fmtRelative(s.ended_at || s.started_at)}</div>
+                      <div className="muted small">{fmtDate(s.ended_at || s.started_at)}</div>
+                    </td>
+                    <td className="hide-md nowrap small muted">{fmtDate(s.started_at)}</td>
                     <td className="num hide-sm">{fmtInt(s.message_count)}</td>
                     <td className="num" title={fmtInt(s.total_tokens)}>
                       {fmtCompact(s.total_tokens)}

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { api, filterParams } from '../api'
 import { useApp } from '../context'
 import { useAsync } from '../hooks'
-import { fmtBytes, fmtCompact, fmtInt, fmtPct, fmtUSD } from '../format'
+import { fmtBytes, fmtCompact, fmtDate, fmtInt, fmtPct, fmtRelative, fmtUSD } from '../format'
 import type { BreakdownRow, OverviewResponse, TimeseriesResponse } from '../types'
 import { Card, Empty, ErrorBox, Icon, Segmented, Spinner, Tabs, assignSeriesColors, colorFor, type ColorMode, type IconName } from '../components/ui'
 import TimeseriesChart, { type Bucket, type GroupBy, type Metric } from '../components/TimeseriesChart'
@@ -216,6 +216,9 @@ export default function OverviewPage() {
               {a.error_files > 0 && <span className="text-err"> · {fmtInt(a.error_files)} errors</span>}
               <br />
               {a.active_devices}/{a.total_devices} devices active
+              {a.last_updated_at && (
+                <span title={fmtDate(a.last_updated_at)}> · updated {fmtRelative(a.last_updated_at)}</span>
+              )}
             </>
           }
         />

@@ -720,7 +720,8 @@ func buildSessionWhere(f QueryFilter) (string, []any) {
 	var conds []string
 	var args []any
 	if f.From != nil {
-		conds = append(conds, "s.started_at >= ?")
+		// Match sessions active at or after f.From (based on last activity time, falling back to started_at).
+		conds = append(conds, "COALESCE(s.ended_at, s.started_at) >= ?")
 		args = append(args, formatTime(*f.From))
 	}
 	if f.To != nil {
@@ -810,22 +811,27 @@ func (s *SQLiteStore) GetOverview(ctx context.Context, f QueryFilter) (*protocol
 	agg.CacheHitRate = calcCacheHitRate(agg.InputTokens, agg.CachedInputTokens, agg.CacheWrite5mTokens, agg.CacheWrite1hTokens)
 
 	var arch protocol.ArchiveSummary
+	var lastFileUpd sql.NullString
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT
 			COUNT(*),
 			COALESCE(SUM(byte_size), 0),
 			COALESCE(SUM(CASE WHEN parse_status = 'parsed' THEN 1 ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN parse_status = 'error' THEN 1 ELSE 0 END), 0)
+			COALESCE(SUM(CASE WHEN parse_status = 'error' THEN 1 ELSE 0 END), 0),
+			MAX(updated_at)
 		FROM raw_files
-	`).Scan(&arch.TotalFiles, &arch.TotalBytes, &arch.ParsedFiles, &arch.ErrorFiles)
+	`).Scan(&arch.TotalFiles, &arch.TotalBytes, &arch.ParsedFiles, &arch.ErrorFiles, &lastFileUpd)
 
 	cutoff := formatTime(time.Now().UTC().Add(-24 * time.Hour))
+	var lastDevSeen sql.NullString
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT
 			COUNT(*),
-			COALESCE(SUM(CASE WHEN last_seen_at >= ? AND revoked_at IS NULL THEN 1 ELSE 0 END), 0)
+			COALESCE(SUM(CASE WHEN last_seen_at >= ? AND revoked_at IS NULL THEN 1 ELSE 0 END), 0),
+			MAX(last_seen_at)
 		FROM devices
-	`, cutoff).Scan(&arch.TotalDevices, &arch.ActiveDevices)
+	`, cutoff).Scan(&arch.TotalDevices, &arch.ActiveDevices, &lastDevSeen)
+	arch.LastUpdatedAt = latestTime(parseNullTime(lastFileUpd), parseNullTime(lastDevSeen))
 
 	byHarness, err := s.GetBreakdown(ctx, f, "harness")
 	if err != nil {
@@ -1018,8 +1024,12 @@ func (s *SQLiteStore) ListSessions(ctx context.Context, params SessionListParams
 		return nil, 0, err
 	}
 
-	orderCol := "s.started_at"
+	orderCol := "COALESCE(s.ended_at, s.started_at)"
 	switch params.Sort {
+	case "started_at":
+		orderCol = "s.started_at"
+	case "ended_at", "updated_at", "last_active":
+		orderCol = "COALESCE(s.ended_at, s.started_at)"
 	case "cost":
 		orderCol = "s.estimated_cost_usd"
 	case "tokens":
@@ -1368,7 +1378,24 @@ func (s *SQLiteStore) GetFilterOptions(ctx context.Context) (*protocol.FilterOpt
 		}
 		rows.Close()
 	}
+	var lastFileUpd, lastDevSeen sql.NullString
+	_ = s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM raw_files`).Scan(&lastFileUpd)
+	_ = s.db.QueryRowContext(ctx, `SELECT MAX(last_seen_at) FROM devices`).Scan(&lastDevSeen)
+	opts.LastUpdatedAt = latestTime(parseNullTime(lastFileUpd), parseNullTime(lastDevSeen))
 	return opts, nil
+}
+
+func latestTime(a, b *time.Time) *time.Time {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	if b.After(*a) {
+		return b
+	}
+	return a
 }
 
 // --- Pricing Overrides & Cost Recalculation ---

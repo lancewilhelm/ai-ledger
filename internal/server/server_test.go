@@ -160,6 +160,25 @@ func TestEndToEndCollectorIngestAndAPI(t *testing.T) {
 	if ov.Archive.TotalFiles != 2 || ov.Archive.ParsedFiles != 2 {
 		t.Errorf("unexpected archive summary: %+v", ov.Archive)
 	}
+	if ov.Archive.LastUpdatedAt == nil {
+		t.Errorf("expected archive.last_updated_at to be populated")
+	}
+
+	// Verify /api/filters reports last_updated_at
+	filt := getJSON[protocol.FilterOptions](t, ts.URL+"/api/filters")
+	if filt.LastUpdatedAt == nil {
+		t.Errorf("expected /api/filters last_updated_at to be populated")
+	}
+
+	// Verify date range filter includes sessions updated inside the range even if started earlier
+	// (Codex session started 10:00:00Z, updated 10:05:00Z; Claude session started 11:00:00Z)
+	midRange := getJSON[struct {
+		Sessions []protocol.SessionSummary `json:"sessions"`
+		Total    int64                     `json:"total"`
+	}](t, ts.URL+"/api/sessions?from=2026-11-24T10:03:00Z&to=2026-11-24T10:30:00Z")
+	if midRange.Total != 1 || len(midRange.Sessions) != 1 || midRange.Sessions[0].Harness != protocol.SourceCodex {
+		t.Errorf("expected Codex session active between 10:03 and 10:30 to match date filter, got total=%d sessions=%+v", midRange.Total, midRange.Sessions)
+	}
 
 	// Query /api/timeseries
 	tsResp := getJSON[struct {

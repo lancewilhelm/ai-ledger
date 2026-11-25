@@ -150,6 +150,7 @@ export interface ArchiveSummary {
   error_files: number
   active_devices: number
   total_devices: number
+  last_updated_at?: string
 }
 
 export interface UsageAggregate {
@@ -234,12 +235,15 @@ export interface FilterOptions {
   models: string[] | null
   devices: { id: string; name: string }[] | null
   projects: string[] | null
+  last_updated_at?: string
 }
 
-export type RangePreset = '24h' | '7d' | '30d' | '90d' | 'all'
+export type RangePreset = '24h' | '7d' | '30d' | '90d' | 'all' | 'custom'
 
 export interface Filters {
   range: RangePreset
+  from: string
+  to: string
   harness: string
   model: string
   device: string

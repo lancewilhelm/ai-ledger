@@ -398,9 +398,9 @@ export default function SessionInspector({ id, onClose }: { id: string; onClose:
                     <dd>{fmtDate(s.started_at)}</dd>
                   </div>
                   <div>
-                    <dt>Ended</dt>
+                    <dt>Last updated</dt>
                     <dd>
-                      {fmtDate(s.ended_at)} <span className="muted small">({fmtDuration(s.started_at, s.ended_at)})</span>
+                      {fmtDate(s.ended_at || s.started_at)} <span className="muted small">({fmtDuration(s.started_at, s.ended_at)})</span>
                     </dd>
                   </div>
                   <div>

@@ -224,12 +224,13 @@ type OverviewResponse struct {
 }
 
 type ArchiveSummary struct {
-	TotalFiles     int64 `json:"total_files"`
-	TotalBytes     int64 `json:"total_bytes"`
-	ParsedFiles    int64 `json:"parsed_files"`
-	ErrorFiles     int64 `json:"error_files"`
-	ActiveDevices  int64 `json:"active_devices"`
-	TotalDevices   int64 `json:"total_devices"`
+	TotalFiles    int64      `json:"total_files"`
+	TotalBytes    int64      `json:"total_bytes"`
+	ParsedFiles   int64      `json:"parsed_files"`
+	ErrorFiles    int64      `json:"error_files"`
+	ActiveDevices int64      `json:"active_devices"`
+	TotalDevices  int64      `json:"total_devices"`
+	LastUpdatedAt *time.Time `json:"last_updated_at,omitempty"`
 }
 
 type UsageAggregate struct {
@@ -295,10 +296,11 @@ type SearchHit struct {
 }
 
 type FilterOptions struct {
-	Harnesses []string          `json:"harnesses"`
-	Models    []string          `json:"models"`
-	Devices   []FilterDeviceOpt `json:"devices"`
-	Projects  []string          `json:"projects"`
+	Harnesses     []string          `json:"harnesses"`
+	Models        []string          `json:"models"`
+	Devices       []FilterDeviceOpt `json:"devices"`
+	Projects      []string          `json:"projects"`
+	LastUpdatedAt *time.Time        `json:"last_updated_at,omitempty"`
 }
 
 type FilterDeviceOpt struct {

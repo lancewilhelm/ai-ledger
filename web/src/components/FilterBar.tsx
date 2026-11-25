@@ -7,6 +7,7 @@ const RANGES: { value: RangePreset; label: string }[] = [
   { value: '30d', label: '30d' },
   { value: '90d', label: '90d' },
   { value: 'all', label: 'All' },
+  { value: 'custom', label: 'Custom' },
 ]
 
 interface Props {
@@ -43,6 +44,27 @@ export default function FilterBar({ filters, options, onChange, onRange, onClear
   return (
     <div className="filterbar">
       <Segmented value={filters.range} options={RANGES} onChange={onRange} size="sm" />
+      {filters.range === 'custom' && (
+        <div className="date-range" role="group" aria-label="Custom date range">
+          <input
+            type="date"
+            className="input date-input"
+            aria-label="Start date"
+            value={filters.from}
+            max={filters.to || undefined}
+            onChange={(e) => onChange('from', e.target.value)}
+          />
+          <span className="muted small">to</span>
+          <input
+            type="date"
+            className="input date-input"
+            aria-label="End date"
+            value={filters.to}
+            min={filters.from || undefined}
+            onChange={(e) => onChange('to', e.target.value)}
+          />
+        </div>
+      )}
       <Select label="Harness" plural="harnesses" value={filters.harness} onChange={(v) => onChange('harness', v)} options={toOpts(options?.harnesses)} />
       <Select label="Model" plural="models" value={filters.model} onChange={(v) => onChange('model', v)} options={toOpts(options?.models)} />
       <Select

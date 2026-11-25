@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { Ctx, type AppCtx, type View } from './context'
+import { fmtDate, fmtRelative } from './format'
 import { useAsync, usePersistentState } from './hooks'
 import type { FilterOptions, Filters, RangePreset } from './types'
 import { Icon, type IconName } from './components/ui'
@@ -38,7 +39,14 @@ function writeHash(r: Route) {
   if (window.location.hash !== h) window.location.hash = h
 }
 
-const DEFAULT_FILTERS: Filters = { range: '30d', harness: '', model: '', device: '', project: '' }
+const DEFAULT_FILTERS: Filters = { range: '30d', from: '', to: '', harness: '', model: '', device: '', project: '' }
+
+function localDateInputValue(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 function loadFilters(): Filters {
   try {
@@ -70,6 +78,12 @@ export default function App() {
   const [theme, setTheme] = usePersistentState<'dark' | 'light'>('ail-theme', defaultTheme())
   const [toasts, setToasts] = useState<Toast[]>([])
   const [navOpen, setNavOpen] = useState(false)
+  const [, setClockTick] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setClockTick((t) => t + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -93,6 +107,17 @@ export default function App() {
 
   const setFilter = useCallback(<K extends keyof Filters>(k: K, v: Filters[K]) => {
     setFilters((f) => ({ ...f, [k]: v }))
+  }, [])
+
+  const setRange = useCallback((r: RangePreset) => {
+    setFilters((f) => {
+      if (r === 'custom' && !f.from && !f.to) {
+        const now = new Date()
+        const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7)
+        return { ...f, range: r, from: localDateInputValue(weekAgo), to: localDateInputValue(now) }
+      }
+      return { ...f, range: r }
+    })
   }, [])
 
   const toast = useCallback((msg: string, tone: 'ok' | 'err' = 'ok') => {
@@ -142,6 +167,21 @@ export default function App() {
             ))}
           </nav>
           <div className="sidebar-foot">
+            <div
+              className="sync-meta"
+              title={opts.data?.last_updated_at ? `Last data update: ${fmtDate(opts.data.last_updated_at)}` : 'Waiting for first sync'}
+            >
+              <div className="sync-meta-row">
+                <span className={`status-dot ${opts.data?.last_updated_at ? 'ok' : ''}`} />
+                <span className="muted small">Last updated</span>
+              </div>
+              <div className="sync-meta-val">
+                {opts.data?.last_updated_at ? fmtRelative(opts.data.last_updated_at) : '—'}
+              </div>
+              {opts.data?.last_updated_at && (
+                <div className="muted small ellipsis">{fmtDate(opts.data.last_updated_at)}</div>
+              )}
+            </div>
             <button className="nav-item" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} title={theme === 'dark' ? 'Switch to Sage Light' : 'Switch to Sage Nord'}>
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
               <span>{theme === 'dark' ? 'Sage Light' : 'Sage Nord'}</span>
@@ -161,8 +201,8 @@ export default function App() {
                 filters={filters}
                 options={opts.data}
                 onChange={setFilter}
-                onRange={(r: RangePreset) => setFilter('range', r)}
-                onClear={() => setFilters((f) => ({ ...DEFAULT_FILTERS, range: f.range }))}
+                onRange={setRange}
+                onClear={() => setFilters((f) => ({ ...DEFAULT_FILTERS, range: f.range, from: f.from, to: f.to }))}
                 activeCount={activeCount}
                 onRefresh={refresh}
               />

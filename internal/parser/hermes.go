@@ -165,6 +165,10 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 			sess := &bundle.Sessions[sIdx]
 			ts := unixFloatToTime(tsUnix)
 			tsPtr := &ts
+			if !ts.IsZero() && (sess.EndedAt == nil || ts.After(*sess.EndedAt)) {
+				tCopy := ts
+				sess.EndedAt = &tCopy
+			}
 
 			if role == "tool" && tcID != "" {
 				if idx, found := tcByCallID[tcID]; found {
@@ -304,6 +308,9 @@ func (r *Registry) parseHermes(ctx context.Context, in FileInput) (*store.Parsed
 			ts := unixFloatToTime(seenUnix)
 			if ts.IsZero() {
 				ts = sess.StartedAt
+			} else if bundle.Sessions[sIdx].EndedAt == nil || ts.After(*bundle.Sessions[sIdx].EndedAt) {
+				tCopy := ts
+				bundle.Sessions[sIdx].EndedAt = &tCopy
 			}
 			var cost float64
 			if r.Pricing.HasOverride(model) {
