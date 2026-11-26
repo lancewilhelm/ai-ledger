@@ -18,6 +18,9 @@ const (
 	SourceAntigravity = "antigravity"
 	SourceT3          = "t3"
 	SourceHermes      = "hermes"
+	SourceZed         = "zed"
+	SourceVSCodeChat  = "vscode_chat"
+	SourceCopilotCLI  = "copilot_cli"
 	SourceRates       = "rates"
 )
 

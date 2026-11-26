@@ -7,7 +7,7 @@ import type { DeviceInfo, RawFileRecord } from '../types'
 import { Badge, Card, CodeBlock, CopyButton, Empty, ErrorBox, HarnessBadge, Icon, Modal, Pager, Spinner, StatusBadge } from '../components/ui'
 import Onboarding from '../components/Onboarding'
 
-const SOURCES = ['claude', 'codex', 'antigravity', 't3', 'hermes', 'rates']
+const SOURCES = ['claude', 'codex', 'antigravity', 't3', 'hermes', 'zed', 'vscode_chat', 'copilot_cli', 'rates']
 const STATUSES = ['parsed', 'pending', 'error']
 const FILE_LIMIT = 100
 

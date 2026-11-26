@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -20,18 +21,25 @@ type Config struct {
 
 // SourcesConfig enables/configures built-in AI harness paths.
 type SourcesConfig struct {
-	CodexDir        string `json:"codex_dir,omitempty"`
-	ClaudeDir       string `json:"claude_dir,omitempty"`
-	AntigravityDir  string `json:"antigravity_dir,omitempty"`
-	T3Dir           string `json:"t3_dir,omitempty"`
-	HermesDir       string `json:"hermes_dir,omitempty"`
-	DisableCodex    bool   `json:"disable_codex,omitempty"`
-	DisableClaude   bool   `json:"disable_claude,omitempty"`
-	DisableAG       bool   `json:"disable_antigravity,omitempty"`
-	DisableT3       bool   `json:"disable_t3,omitempty"`
-	DisableHermes   bool   `json:"disable_hermes,omitempty"`
-	DisableSQLite   bool   `json:"disable_sqlite_snapshots,omitempty"`
-	FullT3Snapshot  bool   `json:"full_t3_snapshot,omitempty"` // default false: extract compact T3 metadata/orchestration tables only
+	CodexDir       string `json:"codex_dir,omitempty"`
+	ClaudeDir      string `json:"claude_dir,omitempty"`
+	AntigravityDir string `json:"antigravity_dir,omitempty"`
+	T3Dir          string `json:"t3_dir,omitempty"`
+	HermesDir      string `json:"hermes_dir,omitempty"`
+	ZedDataDir     string `json:"zed_data_dir,omitempty"`
+	ZedConfigDir   string `json:"zed_config_dir,omitempty"`
+	VSCodeUserDir  string `json:"vscode_user_dir,omitempty"`
+	CopilotDir     string `json:"copilot_dir,omitempty"`
+	DisableCodex   bool   `json:"disable_codex,omitempty"`
+	DisableClaude  bool   `json:"disable_claude,omitempty"`
+	DisableAG      bool   `json:"disable_antigravity,omitempty"`
+	DisableT3      bool   `json:"disable_t3,omitempty"`
+	DisableHermes  bool   `json:"disable_hermes,omitempty"`
+	DisableZed     bool   `json:"disable_zed,omitempty"`
+	DisableVSCode  bool   `json:"disable_vscode_chat,omitempty"`
+	DisableCopilot bool   `json:"disable_copilot_cli,omitempty"`
+	DisableSQLite  bool   `json:"disable_sqlite_snapshots,omitempty"`
+	FullT3Snapshot bool   `json:"full_t3_snapshot,omitempty"` // default false: extract compact T3 metadata/orchestration tables only
 }
 
 // ExtraSource lets users archive arbitrary extra directories (e.g., opencode, gemini CLI, cursor).
@@ -44,6 +52,25 @@ type ExtraSource struct {
 // DefaultConfig returns a ready-to-use default configuration for the current user's home directory.
 func DefaultConfig() Config {
 	home, _ := os.UserHomeDir()
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	if configDir == "" {
+		configDir = filepath.Join(home, ".config")
+	}
+	dataDir := os.Getenv("XDG_DATA_HOME")
+	if dataDir == "" {
+		dataDir = filepath.Join(home, ".local", "share")
+	}
+	zedDataDir := filepath.Join(dataDir, "zed")
+	vscodeUserDir := filepath.Join(configDir, "Code", "User")
+	if runtime.GOOS == "darwin" {
+		appSupport := filepath.Join(home, "Library", "Application Support")
+		zedDataDir = filepath.Join(appSupport, "Zed")
+		vscodeUserDir = filepath.Join(appSupport, "Code", "User")
+	}
+	copilotDir := os.Getenv("COPILOT_HOME")
+	if copilotDir == "" {
+		copilotDir = filepath.Join(home, ".copilot")
+	}
 	return Config{
 		ServerURL:               "http://127.0.0.1:8484",
 		StatePath:               filepath.Join(home, ".local", "state", "ai-ledger", "collector-state.json"),
@@ -55,6 +82,10 @@ func DefaultConfig() Config {
 			AntigravityDir: filepath.Join(home, ".t3", "userdata", "providers", "antigravity"),
 			T3Dir:          filepath.Join(home, ".t3", "userdata"),
 			HermesDir:      filepath.Join(home, ".hermes"),
+			ZedDataDir:     zedDataDir,
+			ZedConfigDir:   filepath.Join(configDir, "zed"),
+			VSCodeUserDir:  vscodeUserDir,
+			CopilotDir:     copilotDir,
 		},
 	}
 }
@@ -123,6 +154,20 @@ func (c *Config) ApplyDefaults() {
 	c.Sources.AntigravityDir = expandHome(c.Sources.AntigravityDir)
 	c.Sources.T3Dir = expandHome(c.Sources.T3Dir)
 	c.Sources.HermesDir = expandHome(c.Sources.HermesDir)
+	for _, path := range []struct {
+		configured *string
+		fallback   string
+	}{
+		{&c.Sources.ZedDataDir, def.Sources.ZedDataDir},
+		{&c.Sources.ZedConfigDir, def.Sources.ZedConfigDir},
+		{&c.Sources.VSCodeUserDir, def.Sources.VSCodeUserDir},
+		{&c.Sources.CopilotDir, def.Sources.CopilotDir},
+	} {
+		if *path.configured == "" {
+			*path.configured = path.fallback
+		}
+		*path.configured = expandHome(*path.configured)
+	}
 	for i := range c.ExtraSources {
 		c.ExtraSources[i].Dir = expandHome(c.ExtraSources[i].Dir)
 	}

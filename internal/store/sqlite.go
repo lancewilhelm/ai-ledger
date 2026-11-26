@@ -763,6 +763,9 @@ func calcCacheHitRate(input, cached, cw5, cw1 int64) float64 {
 	return float64(cached) / float64(totalIn)
 }
 
+// Zed stores one usage total per thread, with no recorded API call count.
+const usageCallCount = "COUNT(NULLIF(u.harness, '" + protocol.SourceZed + "'))"
+
 func (s *SQLiteStore) GetOverview(ctx context.Context, f QueryFilter) (*protocol.OverviewResponse, error) {
 	whereU, argsU := buildUsageWhere(f)
 	var agg protocol.UsageAggregate
@@ -770,7 +773,7 @@ func (s *SQLiteStore) GetOverview(ctx context.Context, f QueryFilter) (*protocol
 	err := s.db.QueryRowContext(ctx, `
 		SELECT
 			COUNT(DISTINCT u.session_id),
-			COUNT(*),
+			`+usageCallCount+`,
 			COALESCE(SUM(u.input_tokens), 0),
 			COALESCE(SUM(u.cached_input_tokens), 0),
 			COALESCE(SUM(u.cache_write_5m_tokens), 0),
@@ -887,7 +890,7 @@ func (s *SQLiteStore) GetBreakdown(ctx context.Context, f QueryFilter, by string
 			%s AS k,
 			%s AS lbl,
 			COUNT(DISTINCT u.session_id) AS session_count,
-			COUNT(*) AS api_call_count,
+			%s AS api_call_count,
 			COALESCE(SUM(u.input_tokens), 0),
 			COALESCE(SUM(u.cached_input_tokens), 0),
 			COALESCE(SUM(u.cache_write_5m_tokens), 0),
@@ -901,7 +904,7 @@ func (s *SQLiteStore) GetBreakdown(ctx context.Context, f QueryFilter, by string
 		%s
 		GROUP BY k, lbl
 		ORDER BY est_cost DESC, (COALESCE(SUM(u.input_tokens), 0) + COALESCE(SUM(u.cached_input_tokens), 0) + COALESCE(SUM(u.output_tokens), 0)) DESC
-	`, keyExpr, labelExpr, whereU)
+	`, keyExpr, labelExpr, usageCallCount, whereU)
 
 	rows, err := s.db.QueryContext(ctx, q, argsU...)
 	if err != nil {
@@ -977,7 +980,7 @@ func (s *SQLiteStore) GetTimeseries(ctx context.Context, f QueryFilter, bucket, 
 		SELECT
 			%s AS b,
 			%s AS g,
-			COUNT(*) AS api_call_count,
+			%s AS api_call_count,
 			COUNT(DISTINCT u.session_id) AS session_count,
 			COALESCE(SUM(u.input_tokens), 0),
 			COALESCE(SUM(u.cached_input_tokens), 0),
@@ -992,7 +995,7 @@ func (s *SQLiteStore) GetTimeseries(ctx context.Context, f QueryFilter, bucket, 
 		%s
 		GROUP BY b, g
 		ORDER BY b ASC, g ASC
-	`, bucketExpr, groupExpr, whereU)
+	`, bucketExpr, groupExpr, usageCallCount, whereU)
 
 	rows, err := s.db.QueryContext(ctx, q, argsU...)
 	if err != nil {
@@ -1483,10 +1486,10 @@ func (s *SQLiteStore) ListObservedModels(ctx context.Context) ([]protocol.Observ
 		SELECT
 			model,
 			GROUP_CONCAT(DISTINCT harness) AS harnesses,
-			COUNT(*) AS api_calls,
+			`+usageCallCount+` AS api_calls,
 			COALESCE(SUM(input_tokens + cached_input_tokens + cache_write_5m_tokens + cache_write_1h_tokens + output_tokens), 0) AS total_tokens,
 			COALESCE(SUM(estimated_cost_usd), 0) AS cost
-		FROM usage_events
+		FROM usage_events u
 		WHERE model != ''
 		GROUP BY model
 		ORDER BY cost DESC, total_tokens DESC, model ASC

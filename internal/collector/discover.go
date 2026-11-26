@@ -211,7 +211,9 @@ func Discover(cfg Config) ([]CandidateFile, error) {
 		}
 	}
 
-	// 6. User-configured extra sources
+	out = discoverEditorSessions(out, cfg.Sources)
+
+	// User-configured extra sources
 	for _, ex := range cfg.ExtraSources {
 		if ex.Name == "" || !dirExists(ex.Dir) {
 			continue

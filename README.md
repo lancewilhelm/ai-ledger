@@ -34,7 +34,10 @@ Mac / Linux devices (ai-ledger-collector)
   ├── Claude Code  (~/.claude/projects/**/*.jsonl)
   ├── Antigravity  (~/.t3/userdata/providers/antigravity/**/transcript_full.jsonl)
   ├── T3 Code      (~/.t3/userdata/statev2.sqlite slim metadata .zst + usage-model-rates.json)
-  └── Hermes       (~/.hermes/state.db online snapshot .zst)
+  ├── Hermes       (~/.hermes/state.db online snapshot .zst)
+  ├── Zed          (threads.db online snapshot and legacy conversation JSON)
+  ├── VS Code Chat (workspace and empty-window chat logs, including Copilot)
+  └── Copilot CLI  (~/.copilot/session-state/*/events.jsonl)
             │
             │  Incremental chunked HTTP + per-device Bearer token (LAN / Tailscale)
             ▼
@@ -396,6 +399,20 @@ The collector configuration lives at `~/.config/ai-ledger/collector.json`. You c
   ]
 }
 ```
+
+### Zed and Copilot transcripts
+
+The collector discovers these sources automatically. Update both the collector and server to archive and index them. Run `ai-ledger-collector status` to preview the files that the collector will detect.
+
+| Source | Default paths | Overrides in `sources` |
+|---|---|---|
+| Zed | `~/Library/Application Support/Zed/threads/threads.db` on macOS, `$XDG_DATA_HOME/zed/threads/threads.db` on Linux. Legacy conversations live in `$XDG_CONFIG_HOME/zed/conversations/`. | `zed_data_dir`, `zed_config_dir`, `disable_zed` |
+| VS Code Chat | Under `~/Library/Application Support/Code/User` on macOS or `$XDG_CONFIG_HOME/Code/User` on Linux. The collector scans `workspaceStorage/*/chatSessions/` and `globalStorage/emptyWindowChatSessions/` for `.json` and `.jsonl` chats, preferring the journal when both exist. | `vscode_user_dir`, `disable_vscode_chat` |
+| Copilot CLI | `$COPILOT_HOME/session-state/*/events.jsonl`. The default Copilot home is `~/.copilot`. | `copilot_dir`, `disable_copilot_cli` |
+
+`XDG_DATA_HOME` defaults to `~/.local/share` and `XDG_CONFIG_HOME` defaults to `~/.config`. The collector skips the Zed database when `disable_sqlite_snapshots` is enabled.
+
+Zed reports thread-level totals. AI Ledger attributes them to the last saved model and thread update time. VS Code Chat imports conversations and tool activity. Copilot CLI imports usage when explicit usage events are present. The imports use local transcript files, and external agents in Zed are covered when their underlying harness writes logs that AI Ledger already supports.
 
 ---
 

@@ -50,6 +50,12 @@ func (r *Registry) Parse(ctx context.Context, in FileInput) (*store.ParsedFileBu
 		return r.parseT3(ctx, in)
 	case protocol.SourceHermes:
 		return r.parseHermes(ctx, in)
+	case protocol.SourceZed:
+		return r.parseZed(ctx, in)
+	case protocol.SourceVSCodeChat:
+		return r.parseVSCodeChat(ctx, in)
+	case protocol.SourceCopilotCLI:
+		return r.parseCopilotCLI(ctx, in)
 	case protocol.SourceRates:
 		// Hot-load pricing rates into the live calculator; no session rows produced.
 		if _, err := r.Pricing.LoadT3RatesFile(in.AbsPath); err != nil {
