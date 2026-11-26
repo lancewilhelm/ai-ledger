@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -404,27 +405,32 @@ func (s *SQLiteStore) ReplaceFileParsedData(ctx context.Context, fileID string, 
 	now := time.Now().UTC()
 	nowStr := formatTime(now)
 
-	// Delete old FTS entries for sessions from this file before cascading deletes
+	// Existing sessions can come from this file or have the same IDs in another
+	// file (for example, after a log is compressed). Batch both sets so FTS does
+	// one scan even when a database snapshot contains hundreds of sessions.
+	sessionIDs := make([]string, 0, len(bundle.Sessions))
+	for _, sess := range bundle.Sessions {
+		sessionIDs = append(sessionIDs, sess.ID)
+	}
+	sessionIDsJSON, err := json.Marshal(sessionIDs)
+	if err != nil {
+		return fmt.Errorf("encode replacement session IDs: %w", err)
+	}
 	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM messages_fts WHERE session_id IN (SELECT id FROM sessions WHERE source_file_id = ?)
-	`, fileID); err != nil {
+		DELETE FROM messages_fts WHERE session_id IN (
+			SELECT id FROM sessions WHERE source_file_id = ?
+			UNION ALL
+			SELECT value FROM json_each(?)
+		)
+	`, fileID, string(sessionIDsJSON)); err != nil {
 		return fmt.Errorf("clear fts: %w", err)
 	}
 
 	// Cascading delete removes old messages, tool_calls, usage_events, rate_limit_snapshots
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE source_file_id = ?`, fileID); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM sessions WHERE source_file_id = ? OR id IN (SELECT value FROM json_each(?))
+	`, fileID, string(sessionIDsJSON)); err != nil {
 		return fmt.Errorf("clear sessions: %w", err)
-	}
-
-	// Also clear any existing session rows with the same deterministic ID (e.g. if a log moved
-	// from .jsonl to .jsonl.zst) so prior usage_events / messages never accumulate as duplicates.
-	for _, sess := range bundle.Sessions {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM messages_fts WHERE session_id = ?`, sess.ID); err != nil {
-			return fmt.Errorf("clear fts by session %s: %w", sess.ID, err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, sess.ID); err != nil {
-			return fmt.Errorf("clear session %s: %w", sess.ID, err)
-		}
 	}
 
 	// Upsert T3 thread links if any
@@ -764,7 +770,8 @@ func calcCacheHitRate(input, cached, cw5, cw1 int64) float64 {
 }
 
 // Zed stores one usage total per thread, with no recorded API call count.
-const usageCallCount = "COUNT(NULLIF(u.harness, '" + protocol.SourceZed + "'))"
+const usageCallSource = "NULLIF(u.harness, '" + protocol.SourceZed + "')"
+const usageCallCount = "COUNT(" + usageCallSource + ")"
 
 func (s *SQLiteStore) GetOverview(ctx context.Context, f QueryFilter) (*protocol.OverviewResponse, error) {
 	whereU, argsU := buildUsageWhere(f)
@@ -871,9 +878,8 @@ func (s *SQLiteStore) GetOverview(ctx context.Context, f QueryFilter) (*protocol
 
 func (s *SQLiteStore) GetBreakdown(ctx context.Context, f QueryFilter, by string) ([]protocol.BreakdownRow, error) {
 	var keyExpr, labelExpr string
+	var includeSessions bool
 	switch by {
-	case "harness":
-		keyExpr, labelExpr = "u.harness", "u.harness"
 	case "model":
 		keyExpr, labelExpr = "COALESCE(NULLIF(u.model, ''), 'unknown')", "COALESCE(NULLIF(u.model, ''), 'unknown')"
 	case "device":
@@ -882,31 +888,50 @@ func (s *SQLiteStore) GetBreakdown(ctx context.Context, f QueryFilter, by string
 		keyExpr, labelExpr = "COALESCE(NULLIF(s.project_name, ''), '(no project)')", "COALESCE(NULLIF(s.project_name, ''), '(no project)')"
 	default:
 		keyExpr, labelExpr = "u.harness", "u.harness"
+		includeSessions = true
 	}
 
 	whereU, argsU := buildUsageWhere(f)
-	q := fmt.Sprintf(`
-		SELECT
-			%s AS k,
-			%s AS lbl,
-			COUNT(DISTINCT u.session_id) AS session_count,
-			%s AS api_call_count,
-			COALESCE(SUM(u.input_tokens), 0),
-			COALESCE(SUM(u.cached_input_tokens), 0),
-			COALESCE(SUM(u.cache_write_5m_tokens), 0),
-			COALESCE(SUM(u.cache_write_1h_tokens), 0),
-			COALESCE(SUM(u.output_tokens), 0),
-			COALESCE(SUM(u.reasoning_tokens), 0),
-			COALESCE(SUM(u.estimated_cost_usd), 0) AS est_cost
+	records := fmt.Sprintf(`
+		SELECT %s AS k, %s AS lbl, u.session_id, %s AS call_source,
+		       u.input_tokens, u.cached_input_tokens, u.cache_write_5m_tokens,
+		       u.cache_write_1h_tokens, u.output_tokens, u.reasoning_tokens, u.estimated_cost_usd
 		FROM usage_events u
 		JOIN sessions s ON s.id = u.session_id
 		JOIN devices d ON d.id = u.device_id
 		%s
+	`, keyExpr, labelExpr, usageCallSource, whereU)
+	args := argsU
+	if includeSessions {
+		// Count conversations even when their logs have no token usage records.
+		// DISTINCT session IDs below avoid counting a session twice.
+		whereS, argsS := buildSessionWhere(f)
+		records += `
+			UNION ALL
+			SELECT s.harness, s.harness, s.id, NULL, 0, 0, 0, 0, 0, 0, 0
+			FROM sessions s
+			JOIN devices d ON d.id = s.device_id
+		` + whereS
+		args = append(args, argsS...)
+	}
+	q := `
+		SELECT
+			k, lbl,
+			COUNT(DISTINCT session_id) AS session_count,
+			COUNT(call_source) AS api_call_count,
+			COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(cached_input_tokens), 0),
+			COALESCE(SUM(cache_write_5m_tokens), 0),
+			COALESCE(SUM(cache_write_1h_tokens), 0),
+			COALESCE(SUM(output_tokens), 0),
+			COALESCE(SUM(reasoning_tokens), 0),
+			COALESCE(SUM(estimated_cost_usd), 0) AS est_cost
+		FROM (` + records + `)
 		GROUP BY k, lbl
-		ORDER BY est_cost DESC, (COALESCE(SUM(u.input_tokens), 0) + COALESCE(SUM(u.cached_input_tokens), 0) + COALESCE(SUM(u.output_tokens), 0)) DESC
-	`, keyExpr, labelExpr, usageCallCount, whereU)
+		ORDER BY est_cost DESC, (COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(cached_input_tokens), 0) + COALESCE(SUM(output_tokens), 0)) DESC
+	`
 
-	rows, err := s.db.QueryContext(ctx, q, argsU...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
